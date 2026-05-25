@@ -23,9 +23,9 @@ def _is_sell(r: Dict, tf: str) -> bool:
 
 def _badge(alert: Optional[str]) -> str:
     styles = {
-        "strong_buy":    ("#7f1d1d", "STRONG BUY"),
-        "consider_buy":  ("#dc2626", "CONSIDER BUY"),
-        "watch":         ("#d97706", "WATCH"),
+        "strong_buy":    ("#14532d", "STRONG BUY"),
+        "consider_buy":  ("#16a34a", "CONSIDER BUY"),
+        "watch":         ("#15803d", "WATCH"),
         "warn":          ("#d97706", "WARN"),
         "consider_sell": ("#dc2626", "CONSIDER SELL"),
         "strong_sell":   ("#7f1d1d", "STRONG SELL"),
@@ -45,11 +45,17 @@ def _rsi_div_badge(divergence: Optional[str]) -> str:
 
 
 def _rsi_style(alert: Optional[str]) -> str:
-    if alert in ("strong_buy", "strong_sell"):
+    if alert == "strong_buy":
+        return "color:#14532d;font-weight:bold;"
+    if alert == "strong_sell":
         return "color:#7f1d1d;font-weight:bold;"
-    if alert in ("consider_buy", "consider_sell"):
+    if alert == "consider_buy":
+        return "color:#16a34a;font-weight:bold;"
+    if alert == "consider_sell":
         return "color:#dc2626;font-weight:bold;"
-    if alert in ("watch", "warn"):
+    if alert == "watch":
+        return "color:#15803d;font-weight:bold;"
+    if alert == "warn":
         return "color:#d97706;font-weight:bold;"
     return "color:#374151;"
 
