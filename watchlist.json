@@ -1,0 +1,15 @@
+{
+  "tickers": ["AMZN", 
+              "NBIS", 
+              "SOFI", 
+              "TSLA", 
+              "INTC",
+              "HOOD",
+              "ZS",
+              "HIMS",
+              "ORCL",
+              "NOW",
+              "CDNS",
+              "INTU",
+              "AAOI"]
+}
