@@ -3,10 +3,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# RSI
+# RSI thresholds — oversold / overbought
 RSI_PERIOD = 14
-RSI_WATCH_THRESHOLD = 35
-RSI_BUY_THRESHOLD = 30
+RSI_STRONG_BUY_THRESHOLD  = 25   # oversold — strong buy
+RSI_BUY_THRESHOLD         = 30   # oversold — consider buy
+RSI_WATCH_THRESHOLD       = 35   # oversold — watch
+RSI_WARN_THRESHOLD        = 65   # overbought — warn
+RSI_SELL_THRESHOLD        = 70   # overbought — consider sell
+RSI_STRONG_SELL_THRESHOLD = 75   # overbought — strong sell
 
 # Email
 EMAIL_SENDER = os.getenv("EMAIL_SENDER", "")
