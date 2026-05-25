@@ -7,12 +7,12 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/jackiechen/Desktop/stock-sentinel/.venv/bin/python3</string>
-        <string>/Users/jackiechen/Desktop/stock-sentinel/main.py</string>
+        <string>/Users/jackiechen/Desktop/stock-sentinel-prod/.venv/bin/python3</string>
+        <string>/Users/jackiechen/Desktop/stock-sentinel-prod/main.py</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/jackiechen/Desktop/stock-sentinel</string>
+    <string>/Users/jackiechen/Desktop/stock-sentinel-prod</string>
 
     <key>RunAtLoad</key>
     <true/>
@@ -21,9 +21,9 @@
     <true/>
 
     <key>StandardOutPath</key>
-    <string>/Users/jackiechen/Desktop/stock-sentinel/logs/sentinel.log</string>
+    <string>/Users/jackiechen/Desktop/stock-sentinel-prod/logs/sentinel.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/jackiechen/Desktop/stock-sentinel/logs/sentinel.error.log</string>
+    <string>/Users/jackiechen/Desktop/stock-sentinel-prod/logs/sentinel.error.log</string>
 </dict>
 </plist>
