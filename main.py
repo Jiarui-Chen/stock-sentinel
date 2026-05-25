@@ -5,7 +5,7 @@ import schedule
 from datetime import datetime
 
 from src.data import fetcher
-from src.indicators import rsi
+from src.indicators import rsi, rsi_divergence
 from src.agent import analyzer
 from src.report import email_reporter
 from src.config import REPORT_TIME
@@ -30,12 +30,16 @@ def run() -> None:
         print(f"  [{ticker}] Fetching data...")
         daily_df = fetcher.fetch_daily(ticker)
         weekly_df = fetcher.fetch_weekly(ticker)
+        daily_rsi = rsi.compute(daily_df)
+        weekly_rsi = rsi.compute(weekly_df)
         results.append({
             "ticker": ticker,
-            "daily_rsi": rsi.compute(daily_df),
-            "weekly_rsi": rsi.compute(weekly_df),
-            "daily_alert": rsi.classify(rsi.compute(daily_df)),
-            "weekly_alert": rsi.classify(rsi.compute(weekly_df)),
+            "daily_rsi": daily_rsi,
+            "weekly_rsi": weekly_rsi,
+            "daily_alert": rsi.classify(daily_rsi),
+            "weekly_alert": rsi.classify(weekly_rsi),
+            "daily_rsi_divergence": rsi_divergence.detect(daily_df, rsi_divergence._SWING_WINDOW_DAILY),
+            "weekly_rsi_divergence": rsi_divergence.detect(weekly_df, rsi_divergence._SWING_WINDOW_WEEKLY),
         })
 
     print("  Enriching with Claude...")
