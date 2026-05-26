@@ -53,9 +53,10 @@ def run() -> None:
 schedule.every().day.at(REPORT_TIME).do(run)
 
 if __name__ == "__main__":
-    print(f"Stock Sentinel running — report scheduled at {REPORT_TIME} on weekdays.")
     if "--now" in sys.argv:
         run()
+        sys.exit(0)
+    print(f"Stock Sentinel running — report scheduled at {REPORT_TIME} on weekdays.")
     while True:
         schedule.run_pending()
         time.sleep(30)
