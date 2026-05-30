@@ -27,17 +27,31 @@ RSI Divergence types:
 - null: no RSI divergence detected
 
 A stock with no alerts AND no RSI divergence needs no commentary.
-
-Respond ONLY with valid JSON matching this schema exactly:
-{
-  "tickers": [
-    { "ticker": "AAPL", "commentary": "One sentence or null" }
-  ],
-  "summary": "Overall watchlist commentary"
-}
-
 Be factual and brief. Do not give financial advice.\
 """
+
+_TOOL = {
+    "name": "report_rsi_analysis",
+    "description": "Report RSI analysis results for the watchlist",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "tickers": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "ticker":      {"type": "string"},
+                        "commentary":  {"type": ["string", "null"]},
+                    },
+                    "required": ["ticker"],
+                },
+            },
+            "summary": {"type": "string"},
+        },
+        "required": ["tickers", "summary"],
+    },
+}
 
 
 def enrich(results: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], str]:
@@ -60,24 +74,20 @@ def enrich(results: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], str]:
     try:
         response = _client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=512,
+            max_tokens=1024,
+            tools=[_TOOL],
+            tool_choice={"type": "tool", "name": "report_rsi_analysis"},
             system=[
                 {
                     "type": "text",
                     "text": _SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},  # cache prompt across daily runs
+                    "cache_control": {"type": "ephemeral"},
                 }
             ],
             messages=[{"role": "user", "content": f"Analyze this watchlist:\n\n{payload}"}],
         )
 
-        raw = response.content[0].text.strip()
-        # Strip markdown code fences if Claude wraps the JSON
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        parsed = json.loads(raw.strip())
+        parsed = next(b for b in response.content if b.type == "tool_use").input
         commentary_map = {t["ticker"]: t.get("commentary") for t in parsed.get("tickers", [])}
         enriched = [{**r, "commentary": commentary_map.get(r["ticker"])} for r in results]
         return enriched, parsed.get("summary", "")

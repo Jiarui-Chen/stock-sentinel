@@ -5,20 +5,40 @@ An autonomous AI agent that monitors your stock watchlist daily and delivers an 
 ## What it does
 
 - Reads a user-maintained watchlist (`watchlist.json`)
-- Computes **daily RSI** (short-term) and **weekly RSI** (long-term) for each ticker
-- Flags stocks approaching oversold territory
-- Uses **Claude Haiku** to generate a concise insight per flagged stock and an overall market summary
+- Computes **daily RSI** (short-term) and **weekly RSI** (long-term) for each ticker using Wilder's smoothing
+- Detects **RSI divergence** (bullish and bearish) on both daily and weekly timeframes
+- Classifies signals across 6 levels from strong buy to strong sell
+- Uses **Claude Haiku** to generate per-stock insights and an overall market summary
+- Fetches **24h news headlines** via Yahoo Finance and summarizes them in Chinese using Claude Haiku
 - Sends a formatted HTML email report every weekday at a configured time
 - Runs autonomously as a background service via macOS launchd
 
-## Alert thresholds
+## Signal levels
 
+**Buy signals (oversold)**
 | RSI | Signal |
 |-----|--------|
-| Below 35 | Low RSI Watch |
-| Below 30 | Low RSI Consider Buy |
+| Below 25 | Strong Buy |
+| 25–30 | Consider Buy |
+| 30–35 | Watch |
 
-Both daily and weekly RSI are evaluated independently, surfacing short-term and long-term signals in separate sections of the report.
+**Sell signals (overbought)**
+| RSI | Signal |
+|-----|--------|
+| 65–70 | Warn |
+| 70–75 | Consider Sell |
+| Above 75 | Strong Sell |
+
+RSI divergence is detected independently and surfaced alongside RSI signals:
+- **Bullish divergence** — price made a lower low but RSI made a higher low
+- **Bearish divergence** — price made a higher high but RSI made a lower high
+
+## Report structure
+
+1. **Claude summary** — 1–2 sentence overall market commentary
+2. **News (24h)** — recent headlines per ticker with sentiment and investment implication in Chinese
+3. **Long-term signals** (weekly RSI) — buy and sell sections
+4. **Short-term signals** (daily RSI) — compact single table
 
 ## Project structure
 
@@ -32,11 +52,14 @@ stock-sentinel/
 └── src/
     ├── config.py                  # All settings and env vars
     ├── data/
-    │   └── fetcher.py             # Fetches OHLCV data via yfinance
+    │   ├── fetcher.py             # Fetches OHLCV data via yfinance
+    │   └── news_fetcher.py        # Fetches 24h news headlines via yfinance
     ├── indicators/
-    │   └── rsi.py                 # RSI calculation (Wilder's smoothing)
+    │   ├── rsi.py                 # RSI calculation and classification
+    │   └── rsi_divergence.py      # Swing point divergence detection
     ├── agent/
-    │   └── analyzer.py            # Claude Haiku enrichment
+    │   ├── analyzer.py            # Claude Haiku RSI enrichment
+    │   └── news_analyzer.py       # Claude Haiku news summarization (Chinese)
     └── report/
         └── email_reporter.py      # HTML email builder and SMTP sender
 ```
@@ -80,7 +103,7 @@ The running service picks up changes automatically on the next run — no restar
 
 ## Running
 
-**Test run (immediate)**
+**Test run (immediate, exits when done)**
 ```bash
 source .venv/bin/activate
 python main.py --now
@@ -110,24 +133,26 @@ launchctl list | grep stocksentinel
 # Stop
 launchctl unload ~/Library/LaunchAgents/com.stocksentinel.plist
 
-# Restart (e.g. after changing .env)
+# Restart (required after changing com.stocksentinel.plist or REPORT_TIME in .env)
 launchctl unload ~/Library/LaunchAgents/com.stocksentinel.plist
 launchctl load ~/Library/LaunchAgents/com.stocksentinel.plist
 
 # View logs
-tail -f logs/sentinel.log
-tail -f logs/sentinel.error.log
+tail -f ~/Desktop/stock-sentinel-prod/logs/sentinel.log
+tail -f ~/Desktop/stock-sentinel-prod/logs/sentinel.error.log
 ```
+
+> **Note:** The service always runs from `~/Desktop/stock-sentinel-prod` (the production worktree on `main`). Deploy updates with `git pull` inside that directory. A launchd restart is only needed if `com.stocksentinel.plist` or `REPORT_TIME` changed.
 
 ## Cost
 
-The only paid component is the Claude Haiku API call (~1 per weekday):
+Two Claude Haiku API calls per weekday run (RSI enrichment + news summarization):
 
 | Period | Estimated cost |
 |--------|---------------|
-| Per run | ~$0.0015 |
-| Per month | ~$0.03 |
-| Per year | ~$0.40 |
+| Per run | ~$0.005 |
+| Per month | ~$0.10 |
+| Per year | ~$1.20 |
 
 All other components (yfinance, Gmail SMTP, launchd) are free.
 

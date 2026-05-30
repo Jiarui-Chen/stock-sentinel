@@ -4,9 +4,9 @@ import time
 import schedule
 from datetime import datetime
 
-from src.data import fetcher
+from src.data import fetcher, news_fetcher
 from src.indicators import rsi, rsi_divergence
-from src.agent import analyzer
+from src.agent import analyzer, news_analyzer
 from src.report import email_reporter
 from src.config import REPORT_TIME
 
@@ -44,6 +44,14 @@ def run() -> None:
 
     print("  Enriching with Claude...")
     enriched, summary = analyzer.enrich(results)
+
+    print("  Fetching news...")
+    ticker_articles = news_fetcher.fetch_all(tickers)
+    twitter_insights = news_analyzer.analyze(ticker_articles)
+    enriched = [
+        {**r, **twitter_insights.get(r["ticker"], {})}
+        for r in enriched
+    ]
 
     print("  Sending report...")
     email_reporter.send(enriched, summary)
