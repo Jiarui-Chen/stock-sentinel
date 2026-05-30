@@ -191,6 +191,50 @@ def _st_compact(items: List[Dict]) -> str:
         </div>"""
 
 
+def _twitter_sentiment_badge(sentiment: Optional[str]) -> str:
+    styles = {
+        "bullish": ("#16a34a", "BULLISH"),
+        "bearish": ("#dc2626", "BEARISH"),
+        "neutral": ("#6b7280", "NEUTRAL"),
+        "mixed":   ("#d97706", "MIXED"),
+    }
+    if sentiment in styles:
+        bg, label = styles[sentiment]
+        return f'<span style="background:{bg};color:white;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:bold;">{label}</span>'
+    return ""
+
+
+def _twitter_section(results: List[Dict]) -> str:
+    active = [r for r in results if r.get("news_summary")]
+    if not active:
+        return ""
+
+    rows = ""
+    for r in sorted(active, key=lambda x: x["ticker"]):
+        summary     = r.get("news_summary", "")
+        implication = r.get("news_implication", "")
+        discussion  = f"{summary}<br><span style='color:#374151;font-style:normal;'>{implication}</span>" if implication else summary
+        rows += f"""
+            <tr style="border-top:1px solid #e2e8f0;">
+                <td style="padding:10px 12px;font-weight:bold;vertical-align:top;">{r["ticker"]}</td>
+                <td style="padding:10px 12px;vertical-align:top;">{_twitter_sentiment_badge(r.get("news_sentiment"))}</td>
+                <td style="padding:10px 12px;color:#6b7280;font-size:12px;font-style:italic;">{discussion}</td>
+            </tr>"""
+
+    return f"""
+        <div style="margin:20px 0;">
+            <h2 style="font-size:14px;font-weight:bold;margin-bottom:8px;color:#111827;">News (24h)</h2>
+            <table style="width:100%;border-collapse:collapse;background:#f8fafc;border-radius:6px;overflow:hidden;">
+                <thead><tr style="background:#e2e8f0;font-size:11px;text-transform:uppercase;color:#6b7280;">
+                    <th style="padding:7px 12px;text-align:left;">Ticker</th>
+                    <th style="padding:7px 12px;text-align:left;">Sentiment</th>
+                    <th style="padding:7px 12px;text-align:left;">Discussion &amp; Implication</th>
+                </tr></thead>
+                <tbody>{rows}</tbody>
+            </table>
+        </div>"""
+
+
 def _divider() -> str:
     return '<hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0;">'
 
@@ -244,13 +288,10 @@ def build_html(results: List[Dict[str, Any]], summary: str) -> str:
 
     <div style="padding:4px 24px 24px;">
         {summary_block}
+        {_twitter_section(results)}
         {long_term_block}
-        {_divider() if conflict else ""}
-        {_conflict_section(conflict)}
         {_divider()}
         {_st_compact(st_all)}
-        {_divider()}
-        {_watchlist_table(results)}
     </div>
 
     <div style="background:#f1f5f9;padding:12px 24px;text-align:center;color:#9ca3af;font-size:11px;border-radius:0 0 8px 8px;">

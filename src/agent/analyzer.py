@@ -60,7 +60,7 @@ def enrich(results: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], str]:
     try:
         response = _client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=512,
+            max_tokens=1024,
             system=[
                 {
                     "type": "text",
@@ -72,12 +72,9 @@ def enrich(results: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], str]:
         )
 
         raw = response.content[0].text.strip()
-        # Strip markdown code fences if Claude wraps the JSON
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        parsed = json.loads(raw.strip())
+        if "```" in raw:
+            raw = raw.split("```")[1].lstrip("json").strip()
+        parsed = json.loads(raw)
         commentary_map = {t["ticker"]: t.get("commentary") for t in parsed.get("tickers", [])}
         enriched = [{**r, "commentary": commentary_map.get(r["ticker"])} for r in results]
         return enriched, parsed.get("summary", "")
