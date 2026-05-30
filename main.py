@@ -46,8 +46,8 @@ def run() -> None:
     enriched, summary = analyzer.enrich(results)
 
     print("  Fetching news...")
-    ticker_headlines = news_fetcher.fetch_all(tickers)
-    twitter_insights = news_analyzer.analyze(ticker_headlines)
+    ticker_articles = news_fetcher.fetch_all(tickers)
+    twitter_insights = news_analyzer.analyze(ticker_articles)
     enriched = [
         {**r, **twitter_insights.get(r["ticker"], {})}
         for r in enriched

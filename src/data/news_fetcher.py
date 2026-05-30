@@ -4,24 +4,23 @@ from typing import Dict, List
 import yfinance as yf
 
 
-def fetch_tweets(ticker: str) -> List[str]:
+def fetch_news(ticker: str) -> List[Dict[str, str]]:
     try:
         news = yf.Ticker(ticker).news or []
         cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-        recent = [
-            n for n in news
-            if datetime.fromtimestamp(
-                (n.get("content") or {}).get("pubDate") and
-                _parse_pubdate((n.get("content") or {}).get("pubDate")) or
-                n.get("providerPublishTime", 0),
-                tz=timezone.utc,
-            ) >= cutoff
-        ]
-        titles = [
-            (n.get("content") or {}).get("title") or n.get("title")
-            for n in recent
-        ]
-        return [t for t in titles if t]
+        articles = []
+        for n in news:
+            content = n.get("content") or {}
+            pub_ts = _parse_pubdate(content.get("pubDate", "")) or n.get("providerPublishTime", 0)
+            if datetime.fromtimestamp(pub_ts, tz=timezone.utc) < cutoff:
+                continue
+            title   = content.get("title")   or n.get("title", "")
+            summary = content.get("summary") or ""
+            if title:
+                articles.append({"title": title, "summary": summary[:300]})
+            if len(articles) == 5:
+                break
+        return articles
     except Exception as e:
         print(f"[WARN] News fetch failed for {ticker}: {e}")
         return []
@@ -34,5 +33,5 @@ def _parse_pubdate(pubdate: str) -> float:
         return 0.0
 
 
-def fetch_all(tickers: List[str]) -> Dict[str, List[str]]:
-    return {ticker: fetch_tweets(ticker) for ticker in tickers}
+def fetch_all(tickers: List[str]) -> Dict[str, List[Dict[str, str]]]:
+    return {ticker: fetch_news(ticker) for ticker in tickers}

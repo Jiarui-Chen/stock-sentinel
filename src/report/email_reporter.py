@@ -218,7 +218,7 @@ def _twitter_section(results: List[Dict]) -> str:
             <tr style="border-top:1px solid #e2e8f0;">
                 <td style="padding:10px 12px;font-weight:bold;vertical-align:top;">{r["ticker"]}</td>
                 <td style="padding:10px 12px;vertical-align:top;">{_twitter_sentiment_badge(r.get("news_sentiment"))}</td>
-                <td style="padding:10px 12px;color:#6b7280;font-size:12px;font-style:italic;">{discussion}</td>
+                <td style="padding:10px 12px;color:#6b7280;font-size:12px;">{discussion}</td>
             </tr>"""
 
     return f"""
