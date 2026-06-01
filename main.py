@@ -16,9 +16,9 @@ def load_watchlist() -> list[str]:
         return json.load(f)["tickers"]
 
 
-def run() -> None:
+def run(force: bool = False) -> None:
     now = datetime.now()
-    if now.weekday() >= 5:
+    if not force and now.weekday() >= 5:
         print(f"[{now:%Y-%m-%d}] Weekend — skipping.")
         return
 
@@ -62,7 +62,7 @@ schedule.every().day.at(REPORT_TIME).do(run)
 
 if __name__ == "__main__":
     if "--now" in sys.argv:
-        run()
+        run(force=True)
         sys.exit(0)
     print(f"Stock Sentinel running — report scheduled at {REPORT_TIME} on weekdays.")
     while True:
