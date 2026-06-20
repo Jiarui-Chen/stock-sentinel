@@ -247,7 +247,47 @@ def _sort_key(r: Dict) -> tuple:
     return (alert_rank, has_div, has_news)
 
 
-def build_html(results: List[Dict[str, Any]], summary: str) -> Tuple[str, Dict[str, bytes]]:
+def _analyst_picks_block(picks: Dict) -> str:
+    buy  = picks.get("buy",  [])
+    sell = picks.get("sell", [])
+    if not buy and not sell:
+        return ""
+
+    def pick_rows(items: list, color: str, arrow: str) -> str:
+        rows = ""
+        for p in items:
+            rows += f"""
+            <tr>
+                <td style="padding:8px 12px 8px 0;vertical-align:top;white-space:nowrap;">
+                    <span style="font-weight:bold;font-size:13px;color:{color};">{arrow} {p["ticker"]}</span>
+                </td>
+                <td style="padding:8px 0;font-size:12px;color:#374151;line-height:1.5;">
+                    {p["reason"]}
+                </td>
+            </tr>"""
+        return rows
+
+    buy_rows  = pick_rows(buy,  "#16a34a", "▲")
+    sell_rows = pick_rows(sell, "#dc2626", "▼")
+
+    divider = '<tr><td colspan="2"><div style="border-top:1px solid #e2e8f0;margin:6px 0;"></div></td></tr>' if buy and sell else ""
+
+    return f"""
+    <div style="border:1px solid #e2e8f0;border-radius:6px;margin:16px 0;overflow:hidden;">
+        <div style="padding:10px 16px;background:#0f172a;border-bottom:1px solid #e2e8f0;">
+            <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">SENTINEL PICKS</span>
+        </div>
+        <div style="padding:10px 16px;">
+            <table style="width:100%;border-collapse:collapse;">
+                {buy_rows}
+                {divider}
+                {sell_rows}
+            </table>
+        </div>
+    </div>"""
+
+
+def build_html(results: List[Dict[str, Any]], analyst_picks: Optional[Dict] = None) -> Tuple[str, Dict[str, bytes]]:
     """Returns (html_string, {cid: png_bytes}) for CID-embedded chart images."""
     charts: Dict[str, bytes] = {}
     today = date.today().strftime("%B %d, %Y")
@@ -259,11 +299,7 @@ def build_html(results: List[Dict[str, Any]], summary: str) -> Tuple[str, Dict[s
     ])
     alert_label = f"{signal_count} signal{'s' if signal_count != 1 else ''}" if signal_count else "No signals"
 
-    summary_block = f"""
-    <div style="margin:20px 0;padding:14px 16px;background:#f8fafc;border-left:3px solid #94a3b8;border-radius:4px;">
-        <p style="margin:0;color:#374151;font-size:13px;">{summary}</p>
-    </div>""" if summary else ""
-
+    picks_block  = _analyst_picks_block(analyst_picks) if analyst_picks else ""
     ticker_cards = "".join(_ticker_card(r, charts) for r in sorted(results, key=_sort_key))
 
     html = f"""<!DOCTYPE html>
@@ -279,7 +315,7 @@ def build_html(results: List[Dict[str, Any]], summary: str) -> Tuple[str, Dict[s
     </div>
 
     <div style="padding:4px 24px 24px;">
-        {summary_block}
+        {picks_block}
         {ticker_cards}
     </div>
 
@@ -293,7 +329,7 @@ def build_html(results: List[Dict[str, Any]], summary: str) -> Tuple[str, Dict[s
     return html, charts
 
 
-def send(results: List[Dict[str, Any]], summary: str) -> None:
+def send(results: List[Dict[str, Any]], analyst_picks: Optional[Dict] = None) -> None:
     today = date.today().strftime("%b %d, %Y")
     signal_count = len([
         r for r in results
@@ -304,7 +340,7 @@ def send(results: List[Dict[str, Any]], summary: str) -> None:
     if signal_count:
         subject += f" ({signal_count} signal{'s' if signal_count != 1 else ''})"
 
-    html, charts = build_html(results, summary)
+    html, charts = build_html(results, analyst_picks)
 
     # MIMEMultipart("related") allows CID-referenced inline images
     outer = MIMEMultipart("related")

@@ -22,6 +22,6 @@ SMTP_PORT = 587
 # Scheduler — 24-hour format, runs on weekdays only
 REPORT_TIME = os.getenv("REPORT_TIME", "18:00")
 
-# Claude — use Haiku for lowest cost
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL = "claude-haiku-4-5-20251001"
+CLAUDE_MODEL        = "claude-haiku-4-5-20251001"   # bulk tasks: RSI enrichment, news summarization
+CLAUDE_MODEL_SMART  = "claude-sonnet-4-6"           # reasoning tasks: Sentinel picks
