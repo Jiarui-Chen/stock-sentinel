@@ -1,12 +1,21 @@
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as _TimeoutError
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
 import yfinance as yf
 
+_FETCH_TIMEOUT = 15  # seconds per ticker
+
 
 def fetch_news(ticker: str) -> List[Dict[str, str]]:
     try:
-        news = yf.Ticker(ticker).news or []
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(lambda: yf.Ticker(ticker).news or [])
+            try:
+                news = future.result(timeout=_FETCH_TIMEOUT)
+            except _TimeoutError:
+                print(f"[WARN] News fetch timed out for {ticker} after {_FETCH_TIMEOUT}s — skipping.")
+                return []
         cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
         articles = []
         for n in news:
@@ -34,4 +43,6 @@ def _parse_pubdate(pubdate: str) -> float:
 
 
 def fetch_all(tickers: List[str]) -> Dict[str, List[Dict[str, str]]]:
-    return {ticker: fetch_news(ticker) for ticker in tickers}
+    with ThreadPoolExecutor(max_workers=len(tickers)) as executor:
+        futures = {ticker: executor.submit(fetch_news, ticker) for ticker in tickers}
+        return {ticker: f.result() for ticker, f in futures.items()}

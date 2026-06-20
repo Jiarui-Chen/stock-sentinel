@@ -81,7 +81,8 @@ def analyze(ticker_articles: Dict[str, List[Dict[str, str]]]) -> Dict[str, Any]:
             messages=[{"role": "user", "content": f"Analyze these news articles:\n\n{payload}"}],
         )
 
-        parsed = next(b for b in response.content if b.type == "tool_use").input
+        raw = next(b for b in response.content if b.type == "tool_use").input
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
 
         return {
             t["ticker"]: {
