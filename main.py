@@ -26,6 +26,7 @@ def run(force: bool = False) -> None:
 
     tickers = load_watchlist()
     results = []
+    macd_viz = {}
     for ticker in tickers:
         print(f"  [{ticker}] Fetching data...")
         daily_df = fetcher.fetch_daily(ticker)
@@ -47,15 +48,28 @@ def run(force: bool = False) -> None:
             "weekly_macd_hist_sign": weekly_macd["sign"],
             "weekly_macd_hist_momentum": weekly_macd["momentum"],
         })
+        macd_viz[ticker] = {
+            "daily_macd_series":   daily_macd["macd_series"],
+            "daily_signal_series": daily_macd["signal_series"],
+            "daily_hist_series":   daily_macd["hist_series"],
+            "weekly_macd_series":   weekly_macd["macd_series"],
+            "weekly_signal_series": weekly_macd["signal_series"],
+            "weekly_hist_series":   weekly_macd["hist_series"],
+        }
 
     print("  Enriching with Claude...")
     enriched, summary = analyzer.enrich(results)
 
     print("  Fetching news...")
     ticker_articles = news_fetcher.fetch_all(tickers)
+    for t, arts in ticker_articles.items():
+        print(f"    [{t}] {len(arts)} article(s) fetched")
+    active_count = sum(1 for arts in ticker_articles.values() if arts)
+    print(f"  Analyzing news for {active_count}/{len(tickers)} tickers with articles...")
     twitter_insights = news_analyzer.analyze(ticker_articles)
+    print(f"  News confirmed for: {list(twitter_insights.keys()) or 'none'}")
     enriched = [
-        {**r, **twitter_insights.get(r["ticker"], {})}
+        {**r, **twitter_insights.get(r["ticker"], {}), **macd_viz.get(r["ticker"], {})}
         for r in enriched
     ]
 

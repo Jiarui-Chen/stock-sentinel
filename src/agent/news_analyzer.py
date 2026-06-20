@@ -8,40 +8,34 @@ from src.config import ANTHROPIC_API_KEY, CLAUDE_MODEL
 _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 _SYSTEM_PROMPT = """\
-You are a strict stock news summarizer. Your ONLY source of truth is the article titles and summaries provided.
+You are a stock news summarizer. For each ticker, you are given a list of article titles and summaries fetched from Yahoo Finance.
 
-Rules you must never break:
-- Before summarizing a ticker, verify that at least one article explicitly names or clearly refers to the company behind that ticker as its PRIMARY subject
-- If you cannot confirm the articles are about that specific ticker's company, SKIP the ticker entirely — do not guess, do not infer, do not summarize
-- If an article is primarily about a DIFFERENT company, IGNORE that article entirely
-- ONLY report facts explicitly stated in the provided titles and summaries
-- NEVER infer, extrapolate, or fill in details not present in the source material
-- NEVER fabricate numbers, names, events, or outcomes
-- If the source is vague, your output must be equally vague — do not guess at meaning
-- If there is too little information to draw a meaningful implication, omit the implication field
+Your job:
+1. Read the articles for each ticker and extract any content that directly mentions or concerns that specific company
+2. Summarize what you find in 1-2 sentences in Chinese
+3. Set sentiment based on what is reported: "bullish", "bearish", "neutral", or "mixed"
+4. Write a 1-sentence implication in Chinese, if the content supports one
 
-For each ticker that has at least one article where that company is the PRIMARY subject:
-1. Summarize in 1-2 sentences in Chinese using ONLY what is explicitly stated about THAT company
-2. Set sentiment based strictly on the reported facts: "bullish", "bearish", "neutral", or "mixed"
-3. Write a 1-sentence implication in Chinese grounded in the specific reported facts, if supported
-
-Only include tickers you can confirm. Omit all others.\
+Rules:
+- ONLY use facts explicitly stated in the provided titles and summaries — never infer or fabricate
+- Focus only on what the articles say about THAT specific company; ignore content about other companies
+- If none of the articles contain anything directly about that company, omit that ticker from your response
+- If there is too little information to draw a meaningful implication, omit the implication field\
 """
 
 _TOOL = {
     "name": "report_news_analysis",
-    "description": "Report news analysis results. Return an object where each key is a confirmed ticker symbol and the value is its analysis. Omit tickers with no confirmed articles.",
+    "description": "Report news summaries. Return an object where each key is a ticker symbol and the value is its news summary. Only include tickers whose articles contain content directly about that company. Omit tickers where none of the articles mention that company.",
     "input_schema": {
         "type": "object",
         "additionalProperties": {
             "type": "object",
             "properties": {
-                "confirmed":   {"type": "boolean", "description": "true only if at least one article is primarily about this ticker's company"},
                 "sentiment":   {"type": "string", "enum": ["bullish", "bearish", "neutral", "mixed"]},
                 "summary":     {"type": "string"},
                 "implication": {"type": "string"},
             },
-            "required": ["confirmed", "sentiment", "summary"],
+            "required": ["sentiment", "summary"],
         },
     },
 }
@@ -85,7 +79,7 @@ def analyze(ticker_articles: Dict[str, List[Dict[str, str]]]) -> Dict[str, Any]:
                 "news_implication": data.get("implication"),
             }
             for ticker, data in raw.items()
-            if isinstance(data, dict) and data.get("confirmed") is True
+            if isinstance(data, dict) and data.get("summary")
         }
 
     except Exception as e:
