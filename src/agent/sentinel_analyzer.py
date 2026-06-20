@@ -24,38 +24,32 @@ Guidelines:
 - If fewer than 3 clear buy or sell opportunities exist, return fewer — do not force weak picks\
 """
 
+def _pick_schema() -> dict:
+    obj = {
+        "type": "object",
+        "properties": {
+            "ticker": {"type": "string"},
+            "reason": {"type": "string"},
+        },
+        "required": ["ticker", "reason"],
+    }
+    return obj
+
+
 _TOOL = {
-    "name": "report_analyst_picks",
-    "description": "Report top 3 buy and top 3 sell picks from the watchlist with reasons.",
+    "name": "report_sentinel_picks",
+    "description": "Report top buy and sell picks. Use buy_1/buy_2/buy_3 for the top buys and sell_1/sell_2/sell_3 for the top sells. Omit a slot if fewer than 3 strong picks exist.",
     "input_schema": {
         "type": "object",
         "properties": {
-            "buy": {
-                "type": "array",
-                "maxItems": 3,
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "ticker": {"type": "string"},
-                        "reason": {"type": "string"},
-                    },
-                    "required": ["ticker", "reason"],
-                },
-            },
-            "sell": {
-                "type": "array",
-                "maxItems": 3,
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "ticker": {"type": "string"},
-                        "reason": {"type": "string"},
-                    },
-                    "required": ["ticker", "reason"],
-                },
-            },
+            "buy_1":  _pick_schema(),
+            "buy_2":  _pick_schema(),
+            "buy_3":  _pick_schema(),
+            "sell_1": _pick_schema(),
+            "sell_2": _pick_schema(),
+            "sell_3": _pick_schema(),
         },
-        "required": ["buy", "sell"],
+        "required": ["buy_1", "sell_1"],
     },
 }
 
@@ -88,7 +82,7 @@ def analyze(enriched: List[Dict], fundamentals: Dict[str, Dict]) -> Dict[str, An
             model=CLAUDE_MODEL_SMART,
             max_tokens=2048,
             tools=[_TOOL],
-            tool_choice={"type": "tool", "name": "report_analyst_picks"},
+            tool_choice={"type": "tool", "name": "report_sentinel_picks"},
             system=[{"type": "text", "text": _SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": f"Analyze this watchlist:\n\n{json.dumps(payload, indent=2)}"}],
         )
@@ -97,10 +91,8 @@ def analyze(enriched: List[Dict], fundamentals: Dict[str, Dict]) -> Dict[str, An
         if isinstance(raw, str):
             raw = json.loads(raw)
 
-        buy  = raw.get("buy",  [])
-        sell = raw.get("sell", [])
-        if isinstance(buy,  str): buy  = json.loads(buy)
-        if isinstance(sell, str): sell = json.loads(sell)
+        buy  = [raw[k] for k in ("buy_1",  "buy_2",  "buy_3")  if isinstance(raw.get(k), dict) and raw[k].get("ticker")]
+        sell = [raw[k] for k in ("sell_1", "sell_2", "sell_3") if isinstance(raw.get(k), dict) and raw[k].get("ticker")]
 
         return {"buy": buy, "sell": sell}
 
