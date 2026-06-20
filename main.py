@@ -18,9 +18,6 @@ def load_watchlist() -> list[str]:
 
 def run(force: bool = False) -> None:
     now = datetime.now()
-    if not force and now.weekday() >= 5:
-        print(f"[{now:%Y-%m-%d}] Weekend — skipping.")
-        return
 
     print(f"[{now:%Y-%m-%d %H:%M}] Starting daily run...")
 
