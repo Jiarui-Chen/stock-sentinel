@@ -59,12 +59,10 @@ def run(force: bool = False) -> None:
 
     print("  Fetching news...")
     ticker_articles = news_fetcher.fetch_all(tickers)
-    for t, arts in ticker_articles.items():
-        print(f"    [{t}] {len(arts)} article(s) fetched")
     active_count = sum(1 for arts in ticker_articles.values() if arts)
-    print(f"  Analyzing news for {active_count}/{len(tickers)} tickers with articles...")
+    print(f"  Analyzing news ({active_count} tickers with articles)...")
     twitter_insights = news_analyzer.analyze(ticker_articles)
-    print(f"  News confirmed for: {list(twitter_insights.keys()) or 'none'}")
+    print(f"  News summarized for: {list(twitter_insights.keys()) or 'none'}")
     enriched = [
         {**r, **twitter_insights.get(r["ticker"], {}), **macd_viz.get(r["ticker"], {})}
         for r in enriched
