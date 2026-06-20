@@ -7,7 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
 from datetime import date
 from typing import Dict, List, Any, Optional, Tuple
-from src.config import EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECIPIENT, SMTP_HOST, SMTP_PORT
+from src.config import EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECIPIENTS, SMTP_HOST, SMTP_PORT
 
 _CHART_POINTS = 21
 
@@ -346,7 +346,7 @@ def send(results: List[Dict[str, Any]], analyst_picks: Optional[Dict] = None) ->
     outer = MIMEMultipart("related")
     outer["Subject"] = subject
     outer["From"]    = EMAIL_SENDER
-    outer["To"]      = EMAIL_RECIPIENT
+    outer["To"]      = ", ".join(EMAIL_RECIPIENTS)
     outer.attach(MIMEText(html, "html"))
 
     for cid, png_bytes in charts.items():
@@ -358,6 +358,6 @@ def send(results: List[Dict[str, Any]], analyst_picks: Optional[Dict] = None) ->
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as smtp:
         smtp.starttls()
         smtp.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        smtp.sendmail(EMAIL_SENDER, EMAIL_RECIPIENT, outer.as_string())
+        smtp.sendmail(EMAIL_SENDER, EMAIL_RECIPIENTS, outer.as_string())
 
     print(f"[OK] Report sent — {subject} ({len(charts)} chart images attached)")
