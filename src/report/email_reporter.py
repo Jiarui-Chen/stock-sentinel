@@ -5,274 +5,140 @@ from datetime import date
 from typing import List, Dict, Any, Optional
 from src.config import EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECIPIENT, SMTP_HOST, SMTP_PORT
 
-_BUY_ALERTS  = {"strong_buy", "consider_buy", "watch"}
-_SELL_ALERTS = {"strong_sell", "consider_sell", "warn"}
-
-
-# ── Signal helpers ────────────────────────────────────────────────────────────
-
-def _is_buy(r: Dict, tf: str) -> bool:
-    return r[f"{tf}_alert"] in _BUY_ALERTS or r.get(f"{tf}_rsi_divergence") == "bullish"
-
-
-def _is_sell(r: Dict, tf: str) -> bool:
-    return r[f"{tf}_alert"] in _SELL_ALERTS or r.get(f"{tf}_rsi_divergence") == "bearish"
-
-
-# ── Badges & styles ───────────────────────────────────────────────────────────
-
-def _badge(alert: Optional[str]) -> str:
-    styles = {
-        "strong_buy":    ("#14532d", "STRONG BUY"),
-        "consider_buy":  ("#16a34a", "CONSIDER BUY"),
-        "watch":         ("#15803d", "WATCH"),
-        "warn":          ("#d97706", "WARN"),
-        "consider_sell": ("#dc2626", "CONSIDER SELL"),
-        "strong_sell":   ("#7f1d1d", "STRONG SELL"),
-    }
-    if alert in styles:
-        bg, label = styles[alert]
-        return f'<span style="background:{bg};color:white;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:bold;">{label}</span>'
-    return ""
-
-
-def _rsi_div_badge(divergence: Optional[str]) -> str:
-    if divergence == "bullish":
-        return '<span style="background:#16a34a;color:white;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:bold;">BULL RSI DIV</span>'
-    if divergence == "bearish":
-        return '<span style="background:#dc2626;color:white;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:bold;">BEAR RSI DIV</span>'
-    return ""
-
-
-def _rsi_style(alert: Optional[str]) -> str:
-    if alert == "strong_buy":
-        return "color:#14532d;font-weight:bold;"
-    if alert == "strong_sell":
-        return "color:#7f1d1d;font-weight:bold;"
-    if alert == "consider_buy":
-        return "color:#16a34a;font-weight:bold;"
-    if alert == "consider_sell":
-        return "color:#dc2626;font-weight:bold;"
-    if alert == "watch":
-        return "color:#15803d;font-weight:bold;"
-    if alert == "warn":
-        return "color:#d97706;font-weight:bold;"
-    return "color:#374151;"
-
 
 def _fmt(val: Optional[float]) -> str:
-    return f"{val:.1f}" if val is not None else "N/A"
+    return f"{val:.1f}" if val is not None else "—"
 
 
-def _signals(r: Dict, alert_key: str, div_key: str) -> str:
-    return " ".join(filter(None, [_badge(r.get(alert_key)), _rsi_div_badge(r.get(div_key))]))
+def _rsi_color(alert: Optional[str]) -> str:
+    if alert in {"strong_buy", "consider_buy"}:
+        return "#16a34a"
+    if alert in {"watch", "warn"}:
+        return "#d97706"
+    if alert in {"consider_sell", "strong_sell"}:
+        return "#dc2626"
+    return "#374151"
 
 
-# ── Section builders ──────────────────────────────────────────────────────────
+def _rsi_span(val: str, alert: Optional[str]) -> str:
+    label = f' <span style="font-weight:bold;">{alert.replace("_", " ").upper()}</span>' if alert else ""
+    return f'<span style="color:{_rsi_color(alert)};">{val}{label}</span>'
 
-def _section(title: str, items: List[Dict], rsi_key: str, alert_key: str, div_key: str, sort_asc: bool = True) -> str:
-    if not items:
-        return ""
 
+def _macd_hist_span(sign: Optional[str], momentum: Optional[str]) -> str:
+    if not sign or not momentum:
+        return '<span style="color:#9ca3af;">—</span>'
+    sym = ("+" if sign == "positive" else "−") + ("↑" if momentum == "increasing" else "↓")
+    if sign == "positive" and momentum == "increasing":
+        color = "#16a34a"
+    elif sign == "negative" and momentum == "decreasing":
+        color = "#dc2626"
+    else:
+        color = "#d97706"
+    return f'<span style="font-weight:bold;color:{color};">{sym}</span>'
+
+
+def _label_cell(text: str) -> str:
+    return f'<td style="padding:9px 12px 9px 16px;color:#9ca3af;font-size:10px;font-weight:bold;text-transform:uppercase;white-space:nowrap;vertical-align:top;width:80px;">{text}</td>'
+
+
+def _ticker_card(r: Dict) -> str:
     rows = ""
-    for r in sorted(items, key=lambda x: (x[rsi_key] or 999), reverse=not sort_asc):
-        commentary = r.get("commentary")
-        commentary_row = f"""
-            <tr>
-                <td colspan="3" style="padding:0 12px 10px 12px;color:#6b7280;font-size:12px;font-style:italic;">{commentary}</td>
-            </tr>""" if commentary else ""
+
+    # News
+    if r.get("news_summary"):
+        sentiment = r.get("news_sentiment") or ""
+        sent_color = {"bullish": "#16a34a", "bearish": "#dc2626"}.get(sentiment, "#6b7280")
+        sent_label = f'<span style="color:{sent_color};font-weight:bold;">{sentiment.upper()}</span>  ' if sentiment else ""
+        implication = r.get("news_implication") or ""
+        impl = f'<div style="color:#6b7280;margin-top:3px;">{implication}</div>' if implication else ""
         rows += f"""
-            <tr style="border-top:1px solid #e2e8f0;">
-                <td style="padding:10px 12px;font-weight:bold;">{r["ticker"]}</td>
-                <td style="padding:10px 12px;{_rsi_style(r.get(alert_key))}">{_fmt(r.get(rsi_key))}</td>
-                <td style="padding:10px 12px;">{_signals(r, alert_key, div_key)}</td>
-            </tr>{commentary_row}"""
-
-    return f"""
-        <div style="margin:20px 0;">
-            <h2 style="font-size:14px;font-weight:bold;margin-bottom:8px;color:#111827;">{title}</h2>
-            <table style="width:100%;border-collapse:collapse;background:#f8fafc;border-radius:6px;overflow:hidden;">
-                <thead><tr style="background:#e2e8f0;font-size:11px;text-transform:uppercase;color:#6b7280;">
-                    <th style="padding:7px 12px;text-align:left;">Ticker</th>
-                    <th style="padding:7px 12px;text-align:left;">RSI</th>
-                    <th style="padding:7px 12px;text-align:left;">Signal</th>
-                </tr></thead>
-                <tbody>{rows}</tbody>
-            </table>
-        </div>"""
-
-
-def _conflict_section(items: List[Dict]) -> str:
-    if not items:
-        return ""
-
-    rows = ""
-    for r in sorted(items, key=lambda x: x["ticker"]):
-        commentary = r.get("commentary")
-        commentary_row = f"""
             <tr>
-                <td colspan="5" style="padding:0 12px 10px 12px;color:#6b7280;font-size:12px;font-style:italic;">{commentary}</td>
-            </tr>""" if commentary else ""
-        rows += f"""
-            <tr style="border-top:1px solid #e2e8f0;">
-                <td style="padding:10px 12px;font-weight:bold;">{r["ticker"]}</td>
-                <td style="padding:10px 12px;{_rsi_style(r.get('daily_alert'))}">{_fmt(r.get('daily_rsi'))}</td>
-                <td style="padding:10px 12px;">{_signals(r, 'daily_alert', 'daily_rsi_divergence')}</td>
-                <td style="padding:10px 12px;{_rsi_style(r.get('weekly_alert'))}">{_fmt(r.get('weekly_rsi'))}</td>
-                <td style="padding:10px 12px;">{_signals(r, 'weekly_alert', 'weekly_rsi_divergence')}</td>
-            </tr>{commentary_row}"""
+                {_label_cell("News")}
+                <td style="padding:9px 16px;font-size:12px;color:#374151;">{sent_label}{r["news_summary"]}{impl}</td>
+            </tr>"""
 
-    return f"""
-        <div style="margin:20px 0;">
-            <h2 style="font-size:14px;font-weight:bold;margin-bottom:8px;color:#111827;">⚠️ Conflicting Signals</h2>
-            <table style="width:100%;border-collapse:collapse;background:#fffbeb;border-radius:6px;overflow:hidden;border:1px solid #fde68a;">
-                <thead><tr style="background:#fef3c7;font-size:11px;text-transform:uppercase;color:#92400e;">
-                    <th style="padding:7px 12px;text-align:left;">Ticker</th>
-                    <th style="padding:7px 12px;text-align:left;">Daily RSI</th>
-                    <th style="padding:7px 12px;text-align:left;">Daily Signal</th>
-                    <th style="padding:7px 12px;text-align:left;">Weekly RSI</th>
-                    <th style="padding:7px 12px;text-align:left;">Weekly Signal</th>
-                </tr></thead>
-                <tbody>{rows}</tbody>
-            </table>
-        </div>"""
-
-
-def _watchlist_table(results: List[Dict]) -> str:
-    rows = "".join(f"""
-        <tr style="border-top:1px solid #e2e8f0;">
-            <td style="padding:9px 12px;font-weight:bold;">{r["ticker"]}</td>
-            <td style="padding:9px 12px;{_rsi_style(r.get('daily_alert'))}">{_fmt(r.get('daily_rsi'))}</td>
-            <td style="padding:9px 12px;">{_signals(r, 'daily_alert', 'daily_rsi_divergence')}</td>
-            <td style="padding:9px 12px;{_rsi_style(r.get('weekly_alert'))}">{_fmt(r.get('weekly_rsi'))}</td>
-            <td style="padding:9px 12px;">{_signals(r, 'weekly_alert', 'weekly_rsi_divergence')}</td>
+    # RSI
+    rows += f"""
+        <tr style="border-top:1px solid #f1f5f9;">
+            {_label_cell("RSI")}
+            <td style="padding:9px 16px;font-size:12px;">
+                Daily {_rsi_span(_fmt(r.get("daily_rsi")), r.get("daily_alert"))}
+                <span style="color:#d1d5db;"> &nbsp;|&nbsp; </span>
+                Weekly {_rsi_span(_fmt(r.get("weekly_rsi")), r.get("weekly_alert"))}
+            </td>
         </tr>"""
-        for r in results
-    )
-    return f"""
-        <div style="margin:20px 0;">
-            <h2 style="font-size:14px;font-weight:bold;margin-bottom:8px;color:#111827;">Full Watchlist</h2>
-            <table style="width:100%;border-collapse:collapse;background:#f8fafc;border-radius:6px;overflow:hidden;">
-                <thead><tr style="background:#e2e8f0;font-size:11px;text-transform:uppercase;color:#6b7280;">
-                    <th style="padding:7px 12px;text-align:left;">Ticker</th>
-                    <th style="padding:7px 12px;text-align:left;">Daily RSI</th>
-                    <th style="padding:7px 12px;text-align:left;">Short-term</th>
-                    <th style="padding:7px 12px;text-align:left;">Weekly RSI</th>
-                    <th style="padding:7px 12px;text-align:left;">Long-term</th>
-                </tr></thead>
-                <tbody>{rows}</tbody>
-            </table>
-        </div>"""
 
-
-def _st_compact(items: List[Dict]) -> str:
-    """Single compact table for all short-term signals — no buy/sell split."""
-    if not items:
-        return ""
-    rows = ""
-    for r in sorted(items, key=lambda x: (x["daily_rsi"] or 999)):
+    # RSI Divergence
+    d_div = r.get("daily_rsi_divergence")
+    w_div = r.get("weekly_rsi_divergence")
+    if d_div or w_div:
+        def _div_span(div: str, tf: str) -> str:
+            color = "#16a34a" if div == "bullish" else "#dc2626"
+            return f'{tf} <span style="color:{color};font-weight:bold;">{div.upper()} DIV</span>'
+        parts = list(filter(None, [
+            _div_span(d_div, "Daily") if d_div else "",
+            _div_span(w_div, "Weekly") if w_div else "",
+        ]))
         rows += f"""
-            <tr style="border-top:1px solid #e2e8f0;">
-                <td style="padding:8px 12px;font-weight:bold;">{r["ticker"]}</td>
-                <td style="padding:8px 12px;{_rsi_style(r.get('daily_alert'))}">{_fmt(r.get('daily_rsi'))}</td>
-                <td style="padding:8px 12px;">{_signals(r, 'daily_alert', 'daily_rsi_divergence')}</td>
-            </tr>"""
+        <tr style="border-top:1px solid #f1f5f9;">
+            {_label_cell("Divergence")}
+            <td style="padding:9px 16px;font-size:12px;">{"<span style='color:#d1d5db;'> &nbsp;|&nbsp; </span>".join(parts)}</td>
+        </tr>"""
+
+    # MACD Histogram
+    rows += f"""
+        <tr style="border-top:1px solid #f1f5f9;">
+            {_label_cell("MACD Hist")}
+            <td style="padding:9px 16px;font-size:12px;color:#374151;">
+                Daily {_macd_hist_span(r.get("daily_macd_hist_sign"), r.get("daily_macd_hist_momentum"))}
+                <span style="color:#d1d5db;"> &nbsp;|&nbsp; </span>
+                Weekly {_macd_hist_span(r.get("weekly_macd_hist_sign"), r.get("weekly_macd_hist_momentum"))}
+            </td>
+        </tr>"""
+
     return f"""
-        <div style="margin:20px 0;">
-            <p style="font-size:12px;font-weight:bold;text-transform:uppercase;color:#6b7280;letter-spacing:0.5px;margin:0 0 8px;">Short-term (Daily RSI)</p>
-            <table style="width:100%;border-collapse:collapse;background:#f8fafc;border-radius:6px;overflow:hidden;">
-                <thead><tr style="background:#e2e8f0;font-size:11px;text-transform:uppercase;color:#6b7280;">
-                    <th style="padding:7px 12px;text-align:left;">Ticker</th>
-                    <th style="padding:7px 12px;text-align:left;">Daily RSI</th>
-                    <th style="padding:7px 12px;text-align:left;">Signal</th>
-                </tr></thead>
-                <tbody>{rows}</tbody>
-            </table>
-        </div>"""
+    <div style="border:1px solid #e2e8f0;border-radius:6px;margin:10px 0;overflow:hidden;">
+        <div style="padding:9px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;">
+            <span style="font-weight:bold;font-size:14px;color:#111827;">{r["ticker"]}</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse;">
+            {rows}
+        </table>
+    </div>"""
 
 
-def _twitter_sentiment_badge(sentiment: Optional[str]) -> str:
-    styles = {
-        "bullish": ("#16a34a", "BULLISH"),
-        "bearish": ("#dc2626", "BEARISH"),
-        "neutral": ("#6b7280", "NEUTRAL"),
-        "mixed":   ("#d97706", "MIXED"),
+def _sort_key(r: Dict) -> tuple:
+    priority = {
+        "strong_buy": 0, "strong_sell": 0,
+        "consider_buy": 1, "consider_sell": 1,
+        "watch": 2, "warn": 2,
     }
-    if sentiment in styles:
-        bg, label = styles[sentiment]
-        return f'<span style="background:{bg};color:white;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:bold;">{label}</span>'
-    return ""
+    alert_rank = min(
+        priority.get(r.get("daily_alert"), 3),
+        priority.get(r.get("weekly_alert"), 3),
+    )
+    has_div = 0 if (r.get("daily_rsi_divergence") or r.get("weekly_rsi_divergence")) else 1
+    has_news = 0 if r.get("news_summary") else 1
+    return (alert_rank, has_div, has_news)
 
-
-def _twitter_section(results: List[Dict]) -> str:
-    active = [r for r in results if r.get("news_summary")]
-    if not active:
-        return ""
-
-    rows = ""
-    for r in sorted(active, key=lambda x: x["ticker"]):
-        summary     = r.get("news_summary", "")
-        implication = r.get("news_implication", "")
-        discussion  = f"{summary}<br><span style='color:#374151;font-style:normal;'>{implication}</span>" if implication else summary
-        rows += f"""
-            <tr style="border-top:1px solid #e2e8f0;">
-                <td style="padding:10px 12px;font-weight:bold;vertical-align:top;">{r["ticker"]}</td>
-                <td style="padding:10px 12px;vertical-align:top;">{_twitter_sentiment_badge(r.get("news_sentiment"))}</td>
-                <td style="padding:10px 12px;color:#6b7280;font-size:12px;">{discussion}</td>
-            </tr>"""
-
-    return f"""
-        <div style="margin:20px 0;">
-            <h2 style="font-size:14px;font-weight:bold;margin-bottom:8px;color:#111827;">News (24h)</h2>
-            <table style="width:100%;border-collapse:collapse;background:#f8fafc;border-radius:6px;overflow:hidden;">
-                <thead><tr style="background:#e2e8f0;font-size:11px;text-transform:uppercase;color:#6b7280;">
-                    <th style="padding:7px 12px;text-align:left;">Ticker</th>
-                    <th style="padding:7px 12px;text-align:left;">Sentiment</th>
-                    <th style="padding:7px 12px;text-align:left;">Discussion &amp; Implication</th>
-                </tr></thead>
-                <tbody>{rows}</tbody>
-            </table>
-        </div>"""
-
-
-def _divider() -> str:
-    return '<hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0;">'
-
-
-# ── Main builders ─────────────────────────────────────────────────────────────
 
 def build_html(results: List[Dict[str, Any]], summary: str) -> str:
     today = date.today().strftime("%B %d, %Y")
 
-    # Classify each ticker per timeframe
-    st_conflict_tickers = {r["ticker"] for r in results if _is_buy(r, "daily")  and _is_sell(r, "daily")}
-    lt_conflict_tickers = {r["ticker"] for r in results if _is_buy(r, "weekly") and _is_sell(r, "weekly")}
-    conflict_tickers    = st_conflict_tickers | lt_conflict_tickers
-
-    st_buy   = [r for r in results if _is_buy(r, "daily")  and r["ticker"] not in st_conflict_tickers]
-    st_sell  = [r for r in results if _is_sell(r, "daily") and r["ticker"] not in st_conflict_tickers]
-    lt_buy   = [r for r in results if _is_buy(r, "weekly")  and r["ticker"] not in lt_conflict_tickers]
-    lt_sell  = [r for r in results if _is_sell(r, "weekly") and r["ticker"] not in lt_conflict_tickers]
-    conflict = [r for r in results if r["ticker"] in conflict_tickers]
-
-    total_signals = len({r["ticker"] for r in st_buy + st_sell + lt_buy + lt_sell + conflict})
-    alert_label = f"{total_signals} signal{'s' if total_signals != 1 else ''}" if total_signals else "No signals"
+    signal_count = len([
+        r for r in results
+        if r.get("daily_alert") or r.get("weekly_alert")
+        or r.get("daily_rsi_divergence") or r.get("weekly_rsi_divergence")
+    ])
+    alert_label = f"{signal_count} signal{'s' if signal_count != 1 else ''}" if signal_count else "No signals"
 
     summary_block = f"""
-        <div style="margin:20px 0;padding:14px 16px;background:#eff6ff;border-left:4px solid #3b82f6;border-radius:4px;">
-            <p style="margin:0;color:#1e40af;font-size:13px;">{summary}</p>
-        </div>""" if summary else ""
+    <div style="margin:20px 0;padding:14px 16px;background:#f8fafc;border-left:3px solid #94a3b8;border-radius:4px;">
+        <p style="margin:0;color:#374151;font-size:13px;">{summary}</p>
+    </div>""" if summary else ""
 
-    has_lt = lt_buy or lt_sell
-    st_all = sorted(
-        {r["ticker"]: r for r in st_buy + st_sell}.values(),
-        key=lambda x: x["daily_rsi"] or 999
-    )
-
-    long_term_block = f"""
-        <p style="font-size:12px;font-weight:bold;text-transform:uppercase;color:#6b7280;letter-spacing:0.5px;margin:24px 0 0;">Long-term (Weekly RSI)</p>
-        {_section("🟢 Buy Signals",  lt_buy,  "weekly_rsi", "weekly_alert", "weekly_rsi_divergence", sort_asc=True)}
-        {_section("🔴 Sell Signals", lt_sell, "weekly_rsi", "weekly_alert", "weekly_rsi_divergence", sort_asc=False)}""" if has_lt else ""
+    ticker_cards = "".join(_ticker_card(r) for r in sorted(results, key=_sort_key))
 
     return f"""<!DOCTYPE html>
 <html>
@@ -288,14 +154,11 @@ def build_html(results: List[Dict[str, Any]], summary: str) -> str:
 
     <div style="padding:4px 24px 24px;">
         {summary_block}
-        {_twitter_section(results)}
-        {long_term_block}
-        {_divider()}
-        {_st_compact(st_all)}
+        {ticker_cards}
     </div>
 
     <div style="background:#f1f5f9;padding:12px 24px;text-align:center;color:#9ca3af;font-size:11px;border-radius:0 0 8px 8px;">
-        Buy: &lt;35 watch · &lt;30 consider buy · &lt;25 strong buy&nbsp;&nbsp;·&nbsp;&nbsp;Sell: &gt;65 warn · &gt;70 consider sell · &gt;75 strong sell&nbsp;&nbsp;·&nbsp;&nbsp;Not financial advice.
+        RSI: &lt;35 watch · &lt;30 consider buy · &lt;25 strong buy · &gt;65 warn · &gt;70 consider sell · &gt;75 strong sell · Not financial advice.
     </div>
 
 </body>
@@ -304,11 +167,11 @@ def build_html(results: List[Dict[str, Any]], summary: str) -> str:
 
 def send(results: List[Dict[str, Any]], summary: str) -> None:
     today = date.today().strftime("%b %d, %Y")
-    signal_count = len({
-        r["ticker"] for r in results
-        if r["daily_alert"] or r["weekly_alert"]
+    signal_count = len([
+        r for r in results
+        if r.get("daily_alert") or r.get("weekly_alert")
         or r.get("daily_rsi_divergence") or r.get("weekly_rsi_divergence")
-    })
+    ])
     subject = f"Stock Sentinel — {today}"
     if signal_count:
         subject += f" ({signal_count} signal{'s' if signal_count != 1 else ''})"
