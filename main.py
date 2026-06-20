@@ -4,9 +4,9 @@ import time
 import schedule
 from datetime import datetime
 
-from src.data import fetcher, news_fetcher
+from src.data import fetcher, news_fetcher, fundamentals_fetcher
 from src.indicators import rsi, rsi_divergence, macd
-from src.agent import analyzer, news_analyzer
+from src.agent import analyzer, news_analyzer, sentinel_analyzer
 from src.report import email_reporter
 from src.config import REPORT_TIME
 
@@ -55,21 +55,29 @@ def run(force: bool = False) -> None:
         }
 
     print("  Enriching with Claude...")
-    enriched, summary = analyzer.enrich(results)
+    enriched, _ = analyzer.enrich(results)
 
-    print("  Fetching news...")
+    print("  Fetching news and fundamentals...")
     ticker_articles = news_fetcher.fetch_all(tickers)
+    fundamentals    = fundamentals_fetcher.fetch_all(tickers)
+
     active_count = sum(1 for arts in ticker_articles.values() if arts)
     print(f"  Analyzing news ({active_count} tickers with articles)...")
     twitter_insights = news_analyzer.analyze(ticker_articles)
     print(f"  News summarized for: {list(twitter_insights.keys()) or 'none'}")
+
     enriched = [
         {**r, **twitter_insights.get(r["ticker"], {}), **macd_viz.get(r["ticker"], {})}
         for r in enriched
     ]
 
+    print("  Running Sentinel analysis...")
+    analyst_picks = sentinel_analyzer.analyze(enriched, fundamentals)
+    print(f"  Buy: {[p['ticker'] for p in analyst_picks.get('buy', [])]}  "
+          f"Sell: {[p['ticker'] for p in analyst_picks.get('sell', [])]}")
+
     print("  Sending report...")
-    email_reporter.send(enriched, summary)
+    email_reporter.send(enriched, analyst_picks)
     print(f"[{now:%Y-%m-%d %H:%M}] Done.")
 
 
