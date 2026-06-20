@@ -25,31 +25,24 @@ For each ticker that has at least one article where that company is the PRIMARY 
 2. Set sentiment based strictly on the reported facts: "bullish", "bearish", "neutral", or "mixed"
 3. Write a 1-sentence implication in Chinese grounded in the specific reported facts, if supported
 
-Skip tickers where no article has that company as its primary subject — do NOT include them in the output array at all.\
+Only include tickers you can confirm. Omit all others.\
 """
 
 _TOOL = {
     "name": "report_news_analysis",
-    "description": "Report news analysis results for each ticker",
+    "description": "Report news analysis results. Return an object where each key is a confirmed ticker symbol and the value is its analysis. Omit tickers with no confirmed articles.",
     "input_schema": {
         "type": "object",
-        "properties": {
-            "tickers": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "ticker":      {"type": "string"},
-                        "confirmed":   {"type": "boolean", "description": "true only if at least one article is primarily about this ticker's company"},
-                        "sentiment":   {"type": "string", "enum": ["bullish", "bearish", "neutral", "mixed"]},
-                        "summary":     {"type": "string"},
-                        "implication": {"type": "string"},
-                    },
-                    "required": ["ticker", "confirmed", "sentiment", "summary"],
-                },
+        "additionalProperties": {
+            "type": "object",
+            "properties": {
+                "confirmed":   {"type": "boolean", "description": "true only if at least one article is primarily about this ticker's company"},
+                "sentiment":   {"type": "string", "enum": ["bullish", "bearish", "neutral", "mixed"]},
+                "summary":     {"type": "string"},
+                "implication": {"type": "string"},
             },
+            "required": ["confirmed", "sentiment", "summary"],
         },
-        "required": ["tickers"],
     },
 }
 
@@ -68,7 +61,7 @@ def analyze(ticker_articles: Dict[str, List[Dict[str, str]]]) -> Dict[str, Any]:
     try:
         response = _client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=4096,
+            max_tokens=8192,
             tools=[_TOOL],
             tool_choice={"type": "tool", "name": "report_news_analysis"},
             system=[
@@ -82,16 +75,17 @@ def analyze(ticker_articles: Dict[str, List[Dict[str, str]]]) -> Dict[str, Any]:
         )
 
         raw = next(b for b in response.content if b.type == "tool_use").input
-        parsed = json.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(raw, str):
+            raw = json.loads(raw)
 
         return {
-            t["ticker"]: {
-                "news_sentiment":    t.get("sentiment"),
-                "news_summary":      t.get("summary"),
-                "news_implication":  t.get("implication"),
+            ticker: {
+                "news_sentiment":   data.get("sentiment"),
+                "news_summary":     data.get("summary"),
+                "news_implication": data.get("implication"),
             }
-            for t in parsed.get("tickers", [])
-            if t.get("confirmed") is True
+            for ticker, data in raw.items()
+            if isinstance(data, dict) and data.get("confirmed") is True
         }
 
     except Exception as e:
