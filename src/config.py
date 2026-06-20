@@ -15,7 +15,7 @@ RSI_STRONG_SELL_THRESHOLD = 75   # overbought — strong sell
 # Email
 EMAIL_SENDER = os.getenv("EMAIL_SENDER", "")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")
-EMAIL_RECIPIENT = os.getenv("EMAIL_RECIPIENT", "")
+EMAIL_RECIPIENTS = [e.strip() for e in os.getenv("EMAIL_RECIPIENT", "").split(",") if e.strip()]
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
 
