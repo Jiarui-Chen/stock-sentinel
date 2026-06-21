@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import anthropic
 
@@ -12,16 +12,18 @@ You are Sentinel, an autonomous stock analysis agent. For each stock in the watc
 - Technical indicators: daily and weekly RSI with signal levels, RSI divergence, MACD histogram sign and momentum
 - Recent news sentiment and summary
 - Key fundamentals: P/E ratios, revenue/earnings growth, profit margin, analyst price target vs current price, position vs 52-week range
+- Option flow anomalies (when present): contracts where volume/OI ratio exceeds 1.5×, suggesting unusual positioning by informed traders
 
 Your task: identify the TOP 3 stocks to BUY and TOP 3 stocks to SELL from this watchlist.
 
 Guidelines:
-- BUY candidates: oversold RSI, bullish divergence, positive and rising MACD, strong growth, news catalyst, significant upside to analyst target
-- SELL candidates: overbought RSI, bearish divergence, negative and falling MACD, weak fundamentals, negative news, limited upside or downside risk
-- Prioritize stocks where multiple signals align (technical + fundamental + news)
-- Be specific — cite actual RSI values, MACD direction, growth rates, or news when they drive your call
+- BUY candidates: oversold RSI, bullish divergence, positive and rising MACD, strong growth, news catalyst, significant upside to analyst target, unusual call buying
+- SELL candidates: overbought RSI, bearish divergence, negative and falling MACD, weak fundamentals, negative news, unusual put buying or call selling
+- Option flow is a secondary signal — high call volume/OI suggests bullish positioning, high put volume/OI suggests bearish bets or hedging
+- Prioritize stocks where multiple signals align (technical + fundamental + news + option flow)
+- Be specific — cite actual RSI values, MACD direction, growth rates, news, or option flow ratios when they drive your call
 - Write each reason in 2-3 concise sentences in Chinese (简体中文)
-- If fewer than 3 clear buy or sell opportunities exist, return fewer — do not force weak picks\
+- Always return exactly 3 buys and 3 sells — if strong signals are limited, rank the relatively better options and note the weaker conviction in the reason\
 """
 
 def _pick_schema() -> dict:
@@ -38,7 +40,7 @@ def _pick_schema() -> dict:
 
 _TOOL = {
     "name": "report_sentinel_picks",
-    "description": "Report top buy and sell picks. Use buy_1/buy_2/buy_3 for the top buys and sell_1/sell_2/sell_3 for the top sells. Omit a slot if fewer than 3 strong picks exist.",
+    "description": "Report exactly 3 buy picks and exactly 3 sell picks. All six slots are required.",
     "input_schema": {
         "type": "object",
         "properties": {
@@ -49,12 +51,12 @@ _TOOL = {
             "sell_2": _pick_schema(),
             "sell_3": _pick_schema(),
         },
-        "required": ["buy_1", "sell_1"],
+        "required": ["buy_1", "buy_2", "buy_3", "sell_1", "sell_2", "sell_3"],
     },
 }
 
 
-def analyze(enriched: List[Dict], fundamentals: Dict[str, Dict]) -> Dict[str, Any]:
+def analyze(enriched: List[Dict], fundamentals: Dict[str, Dict], option_flow: Optional[Dict] = None) -> Dict[str, Any]:
     """Returns {buy: [{ticker, reason}], sell: [{ticker, reason}]}."""
     payload = []
     for r in enriched:
@@ -75,6 +77,17 @@ def analyze(enriched: List[Dict], fundamentals: Dict[str, Dict]) -> Dict[str, An
         fund = {k: v for k, v in fundamentals.get(t, {}).items() if v is not None}
         if fund:
             item["fundamentals"] = fund
+        opt_anomalies = (option_flow or {}).get(t, [])
+        if opt_anomalies:
+            item["option_flow"] = [
+                {
+                    "contract": f"{a['expiration']} ${a['strike']:.1f} {a['type'].upper()} {a['moneyness']}",
+                    "ratio":    a["ratio"],
+                    "volume":   a["volume"],
+                    "oi":       a["oi"],
+                }
+                for a in opt_anomalies[:3]
+            ]
         payload.append(item)
 
     try:
