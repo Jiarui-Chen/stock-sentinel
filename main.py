@@ -5,7 +5,7 @@ import schedule
 from datetime import datetime
 
 from src.data import fetcher, news_fetcher, fundamentals_fetcher
-from src.indicators import rsi, rsi_divergence, macd
+from src.indicators import rsi, rsi_divergence, macd, option_flow
 from src.agent import analyzer, news_analyzer, sentinel_analyzer
 from src.report import email_reporter
 from src.config import REPORT_TIME
@@ -71,13 +71,19 @@ def run(force: bool = False) -> None:
         for r in enriched
     ]
 
+    print("  Scanning option flow...")
+    option_flow_findings = option_flow.scan_all(tickers)
+    if option_flow_findings:
+        print(f"  Option flow anomalies: {list(option_flow_findings.keys())}")
+        option_flow.print_report(option_flow_findings)
+
     print("  Running Sentinel analysis...")
-    analyst_picks = sentinel_analyzer.analyze(enriched, fundamentals)
+    analyst_picks = sentinel_analyzer.analyze(enriched, fundamentals, option_flow_findings)
     print(f"  Buy: {[p['ticker'] for p in analyst_picks.get('buy', [])]}  "
           f"Sell: {[p['ticker'] for p in analyst_picks.get('sell', [])]}")
 
     print("  Sending report...")
-    email_reporter.send(enriched, analyst_picks)
+    email_reporter.send(enriched, analyst_picks, option_flow_findings)
     print(f"[{now:%Y-%m-%d %H:%M}] Done.")
 
 

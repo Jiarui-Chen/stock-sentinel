@@ -5,7 +5,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
-from datetime import date
+from datetime import date, datetime
 from typing import Dict, List, Any, Optional, Tuple
 from src.config import EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECIPIENTS, SMTP_HOST, SMTP_PORT
 
@@ -180,7 +180,52 @@ def _timeframe_row(
         </tr>"""
 
 
-def _ticker_card(r: Dict, charts: Dict[str, bytes]) -> str:
+def _fmt_k(n: int) -> str:
+    return f"{n/1000:.1f}K" if n >= 1000 else str(n)
+
+
+def _option_flow_rows(anomalies: List[Dict]) -> str:
+    """Render top-5 option flow anomaly rows inside a ticker card."""
+    if not anomalies:
+        return ""
+
+    display = anomalies[:5]
+    lines = []
+    for a in display:
+        type_color = "#3b82f6" if a["type"] == "call" else "#dc2626"
+        moneyness_html = {
+            "ITM": '<span style="color:#16a34a;font-weight:bold;">ITM</span>',
+            "ATM": '<span style="color:#d97706;font-weight:bold;">ATM</span>',
+            "OTM": '<span style="color:#6b7280;">OTM</span>',
+        }.get(a["moneyness"], a["moneyness"])
+        exp_short = datetime.strptime(a["expiration"], "%Y-%m-%d").strftime("%b %d")
+        lines.append(
+            f'<div style="font-size:11px;color:#374151;padding:2px 0;">'
+            f'<span style="color:#6b7280;">{exp_short}</span> &nbsp;'
+            f'<span style="font-weight:bold;color:{type_color};">{a["type"].upper()}</span> '
+            f'${a["strike"]:,.1f} &nbsp;'
+            f'{moneyness_html} &nbsp;'
+            f'<span style="font-weight:bold;color:#7c3aed;">{a["ratio"]:.1f}×</span>'
+            f'<span style="color:#9ca3af;"> &nbsp;{_fmt_k(a["volume"])} vol / {_fmt_k(a["oi"])} OI</span>'
+            f'</div>'
+        )
+
+    count  = len(anomalies)
+    more   = f' <span style="color:#9ca3af;font-weight:normal;">(+{count - 5} more)</span>' if count > 5 else ""
+    inner  = "".join(lines)
+    return f"""
+        <tr style="border-top:1px solid #f1f5f9;">
+            {_label_cell("Options")}
+            <td style="padding:8px 16px;font-size:12px;">
+                <span style="color:#7c3aed;font-weight:bold;font-size:10px;text-transform:uppercase;">
+                    {count} anomalous contract{"s" if count != 1 else ""}{more}
+                </span>
+                <div style="margin-top:4px;">{inner}</div>
+            </td>
+        </tr>"""
+
+
+def _ticker_card(r: Dict, charts: Dict[str, bytes], option_flow: Optional[List[Dict]] = None) -> str:
     rows = ""
 
     if r.get("news_summary"):
@@ -220,6 +265,8 @@ def _ticker_card(r: Dict, charts: Dict[str, bytes]) -> str:
         charts=charts,
         border_top=True,
     )
+
+    rows += _option_flow_rows(option_flow or [])
 
     return f"""
     <div style="border:1px solid #e2e8f0;border-radius:6px;margin:10px 0;overflow:hidden;">
@@ -287,7 +334,11 @@ def _analyst_picks_block(picks: Dict) -> str:
     </div>"""
 
 
-def build_html(results: List[Dict[str, Any]], analyst_picks: Optional[Dict] = None) -> Tuple[str, Dict[str, bytes]]:
+def build_html(
+    results: List[Dict[str, Any]],
+    analyst_picks: Optional[Dict] = None,
+    option_flow: Optional[Dict[str, List]] = None,
+) -> Tuple[str, Dict[str, bytes]]:
     """Returns (html_string, {cid: png_bytes}) for CID-embedded chart images."""
     charts: Dict[str, bytes] = {}
     today = date.today().strftime("%B %d, %Y")
@@ -300,7 +351,10 @@ def build_html(results: List[Dict[str, Any]], analyst_picks: Optional[Dict] = No
     alert_label = f"{signal_count} signal{'s' if signal_count != 1 else ''}" if signal_count else "No signals"
 
     picks_block  = _analyst_picks_block(analyst_picks) if analyst_picks else ""
-    ticker_cards = "".join(_ticker_card(r, charts) for r in sorted(results, key=_sort_key))
+    ticker_cards = "".join(
+        _ticker_card(r, charts, (option_flow or {}).get(r["ticker"]))
+        for r in sorted(results, key=_sort_key)
+    )
 
     html = f"""<!DOCTYPE html>
 <html>
@@ -329,7 +383,7 @@ def build_html(results: List[Dict[str, Any]], analyst_picks: Optional[Dict] = No
     return html, charts
 
 
-def send(results: List[Dict[str, Any]], analyst_picks: Optional[Dict] = None) -> None:
+def send(results: List[Dict[str, Any]], analyst_picks: Optional[Dict] = None, option_flow: Optional[Dict[str, List]] = None) -> None:
     today = date.today().strftime("%b %d, %Y")
     signal_count = len([
         r for r in results
@@ -340,7 +394,7 @@ def send(results: List[Dict[str, Any]], analyst_picks: Optional[Dict] = None) ->
     if signal_count:
         subject += f" ({signal_count} signal{'s' if signal_count != 1 else ''})"
 
-    html, charts = build_html(results, analyst_picks)
+    html, charts = build_html(results, analyst_picks, option_flow)
 
     # MIMEMultipart("related") allows CID-referenced inline images
     outer = MIMEMultipart("related")
