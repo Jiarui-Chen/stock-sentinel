@@ -193,11 +193,7 @@ def _option_flow_rows(anomalies: List[Dict]) -> str:
     lines = []
     for a in display:
         type_color = "#3b82f6" if a["type"] == "call" else "#dc2626"
-        moneyness_html = {
-            "ITM": '<span style="color:#16a34a;font-weight:bold;">ITM</span>',
-            "ATM": '<span style="color:#d97706;font-weight:bold;">ATM</span>',
-            "OTM": '<span style="color:#6b7280;">OTM</span>',
-        }.get(a["moneyness"], a["moneyness"])
+        moneyness_html = a["moneyness"]
         exp_short = datetime.strptime(a["expiration"], "%Y-%m-%d").strftime("%b %d")
         lines.append(
             f'<div style="font-size:11px;color:#374151;padding:2px 0;">'
@@ -223,6 +219,54 @@ def _option_flow_rows(anomalies: List[Dict]) -> str:
                 <div style="margin-top:4px;">{inner}</div>
             </td>
         </tr>"""
+
+
+def _upcoming_earnings_block(results: List[Dict]) -> str:
+    today   = date.today()
+    entries = []
+    for r in results:
+        ed_str = r.get("earnings_date")
+        if not ed_str:
+            continue
+        try:
+            ed = date.fromisoformat(ed_str)
+            days_until = (ed - today).days
+            if 0 <= days_until <= 14:
+                entries.append((r["ticker"], ed, days_until, r.get("earnings_timing")))
+        except Exception:
+            continue
+
+    if not entries:
+        return ""
+
+    entries.sort(key=lambda x: x[1])
+    rows_html = ""
+    for ticker, ed, days_until, timing in entries:
+        label     = ed.strftime("%b %d")
+        countdown = "Today" if days_until == 0 else "Tomorrow" if days_until == 1 else f"in {days_until} days"
+        color     = "#dc2626" if days_until <= 1 else "#d97706"
+        timing_html = {
+            "BMO": ' &nbsp;<span style="color:#6b7280;font-size:11px;">Before Market</span>',
+            "AMC": ' &nbsp;<span style="color:#6b7280;font-size:11px;">After Market</span>',
+        }.get(timing, "")
+        rows_html += (
+            f'<tr>'
+            f'<td style="padding:7px 8px 7px 16px;font-weight:bold;font-size:13px;color:#111827;white-space:nowrap;">{ticker}</td>'
+            f'<td style="padding:7px 8px;font-size:12px;">'
+            f'<span style="font-weight:bold;color:{color};">{label}</span>{timing_html}</td>'
+            f'<td style="padding:7px 16px 7px 8px;font-size:11px;color:#9ca3af;text-align:right;">{countdown}</td>'
+            f'</tr>'
+        )
+
+    return f"""
+    <div style="border:1px solid #e2e8f0;border-radius:6px;margin:16px 0;overflow:hidden;">
+        <div style="padding:10px 16px;background:#1e3a5f;border-bottom:1px solid #e2e8f0;">
+            <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">UPCOMING EARNINGS</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse;">
+            {rows_html}
+        </table>
+    </div>"""
 
 
 def _ticker_card(r: Dict, charts: Dict[str, bytes], option_flow: Optional[List[Dict]] = None) -> str:
@@ -350,8 +394,9 @@ def build_html(
     ])
     alert_label = f"{signal_count} signal{'s' if signal_count != 1 else ''}" if signal_count else "No signals"
 
-    picks_block  = _analyst_picks_block(analyst_picks) if analyst_picks else ""
-    ticker_cards = "".join(
+    picks_block    = _analyst_picks_block(analyst_picks) if analyst_picks else ""
+    earnings_block = _upcoming_earnings_block(results)
+    ticker_cards   = "".join(
         _ticker_card(r, charts, (option_flow or {}).get(r["ticker"]))
         for r in sorted(results, key=_sort_key)
     )
@@ -370,6 +415,7 @@ def build_html(
 
     <div style="padding:4px 24px 24px;">
         {picks_block}
+        {earnings_block}
         {ticker_cards}
     </div>
 
