@@ -67,7 +67,13 @@ def run(force: bool = False) -> None:
     print(f"  News summarized for: {list(twitter_insights.keys()) or 'none'}")
 
     enriched = [
-        {**r, **twitter_insights.get(r["ticker"], {}), **macd_viz.get(r["ticker"], {})}
+        {
+            **r,
+            **twitter_insights.get(r["ticker"], {}),
+            **macd_viz.get(r["ticker"], {}),
+            "earnings_date":   fundamentals.get(r["ticker"], {}).get("earnings_date"),
+            "earnings_timing": fundamentals.get(r["ticker"], {}).get("earnings_timing"),
+        }
         for r in enriched
     ]
 
