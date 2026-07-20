@@ -11,14 +11,57 @@ EDGAR notes:
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import time
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
 import yfinance as yf
+
+# ── Send-state helpers ────────────────────────────────────────────────────────
+# Tracks which tickers were sent and whether they included a metrics table,
+# so the scheduler can (a) avoid duplicate sends and (b) trigger a morning retry.
+
+_STATE_FILE = Path(__file__).resolve().parents[2] / "logs" / "earnings_state.json"
+
+
+def _load_state() -> Dict[str, Any]:
+    if _STATE_FILE.exists():
+        try:
+            return json.loads(_STATE_FILE.read_text())
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_state(state: Dict[str, Any]) -> None:
+    _STATE_FILE.parent.mkdir(exist_ok=True)
+    _STATE_FILE.write_text(json.dumps(state, indent=2))
+
+
+def record_sent(ticker: str, earnings_date: str, has_metrics: bool) -> None:
+    """Record that we sent an email for this ticker's earnings."""
+    state = _load_state()
+    state[ticker] = {"date": earnings_date, "has_metrics": has_metrics}
+    _save_state(state)
+
+
+def already_sent_ok(ticker: str, earnings_date: str) -> bool:
+    """True if we already sent a complete email (with metrics) for this earnings date."""
+    entry = _load_state().get(ticker)
+    return bool(entry and entry.get("date") == earnings_date and entry.get("has_metrics"))
+
+
+def get_retry_tickers(for_date: str) -> List[str]:
+    """Tickers whose first email on for_date was sent without a metrics table."""
+    return [
+        t for t, v in _load_state().items()
+        if v.get("date") == for_date and not v.get("has_metrics", True)
+    ]
 
 _EDGAR_BASE    = "https://www.sec.gov"
 _DATA_BASE     = "https://data.sec.gov"
