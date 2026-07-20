@@ -4,11 +4,11 @@ import time
 import schedule
 from datetime import datetime
 
-from src.data import fetcher, news_fetcher, fundamentals_fetcher
+from src.data import fetcher, news_fetcher, fundamentals_fetcher, earnings_fetcher
 from src.indicators import rsi, rsi_divergence, macd, option_flow
-from src.agent import analyzer, news_analyzer, sentinel_analyzer
-from src.report import email_reporter
-from src.config import REPORT_TIME
+from src.agent import analyzer, news_analyzer, sentinel_analyzer, earnings_analyzer
+from src.report import email_reporter, earnings_reporter
+from src.config import REPORT_TIME, EARNINGS_EVENING_TIME, EARNINGS_MORNING_TIME
 
 
 def load_watchlist() -> list[str]:
@@ -101,13 +101,74 @@ def run(force: bool = False) -> None:
     print(f"[{now:%Y-%m-%d %H:%M}] Done.")
 
 
+def _send_earnings_for(tickers: list, label: str) -> None:
+    """Fetch transcript + financials from FMP and send one email per ticker."""
+    for ticker in tickers:
+        try:
+            print(f"  [{ticker}] Fetching earnings report...")
+            report = earnings_fetcher.fetch_earnings_report(ticker)
+            if not report:
+                print(f"  [{ticker}] Transcript not available yet — will retry at next check.")
+                continue
+            analysis = earnings_analyzer.analyze(
+                ticker,
+                report.get("financials"),
+                report["transcript"],
+            )
+            if not analysis:
+                continue
+            earnings_reporter.send(ticker, analysis, report.get("financials"))
+        except Exception as e:
+            print(f"  [{ticker}] Earnings report failed: {e}")
+
+
+def run_earnings(label: str = "", force_tickers: list = None) -> None:
+    """
+    Check watchlist for tickers that reported earnings today or yesterday,
+    then send one analysis email per ticker.
+
+    Pass force_tickers to bypass the date check (for testing).
+    """
+    now = datetime.now()
+    print(f"[{now:%Y-%m-%d %H:%M}] Earnings check ({label or 'scheduled'})...")
+
+    if force_tickers:
+        print(f"  Test mode — skipping date check, running: {force_tickers}")
+        _send_earnings_for(force_tickers, label)
+        return
+
+    tickers      = load_watchlist()
+    fundamentals = fundamentals_fetcher.fetch_all(tickers)
+    earnings_dates = {
+        t: fundamentals[t]["earnings_date"]
+        for t in tickers
+        if fundamentals.get(t, {}).get("earnings_date")
+    }
+
+    due = earnings_fetcher.watchlist_due_today(tickers, earnings_dates)
+    if not due:
+        print("  No earnings due today/yesterday.")
+        return
+
+    print(f"  Earnings due: {due}")
+    _send_earnings_for(due, label)
+
+
 schedule.every().day.at(REPORT_TIME).do(run)
+schedule.every().day.at(EARNINGS_EVENING_TIME).do(run_earnings, label="evening")
+schedule.every().day.at(EARNINGS_MORNING_TIME).do(run_earnings, label="morning")
 
 if __name__ == "__main__":
     if "--now" in sys.argv:
         run(force=True)
         sys.exit(0)
-    print(f"Stock Sentinel running — report scheduled at {REPORT_TIME} on weekdays.")
+    if "--earnings-now" in sys.argv:
+        idx            = sys.argv.index("--earnings-now")
+        force_tickers  = [t.upper() for t in sys.argv[idx + 1:] if not t.startswith("--")] or None
+        run_earnings(label="manual", force_tickers=force_tickers)
+        sys.exit(0)
+    print(f"Stock Sentinel running — report at {REPORT_TIME}, "
+          f"earnings checks at {EARNINGS_EVENING_TIME} and {EARNINGS_MORNING_TIME}.")
     while True:
         try:
             schedule.run_pending()
