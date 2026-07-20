@@ -24,4 +24,10 @@ REPORT_TIME = os.getenv("REPORT_TIME", "18:00")
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL        = "claude-haiku-4-5-20251001"   # bulk tasks: RSI enrichment, news summarization
-CLAUDE_MODEL_SMART  = "claude-sonnet-4-6"           # reasoning tasks: Sentinel picks
+CLAUDE_MODEL_SMART  = "claude-sonnet-4-6"           # reasoning tasks: Sentinel picks, earnings analysis
+
+FMP_API_KEY = os.getenv("FMP_API_KEY", "")
+
+# Earnings email schedule (24h, local time)
+EARNINGS_EVENING_TIME = os.getenv("EARNINGS_EVENING_TIME", "20:30")  # primary: same night
+EARNINGS_MORNING_TIME = os.getenv("EARNINGS_MORNING_TIME", "08:00")  # fallback: next morning
