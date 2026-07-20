@@ -213,9 +213,13 @@ def fetch_transcript(ticker: str) -> Optional[str]:
         return None
 
 
-def fetch_financials(ticker: str) -> Optional[Dict[str, Any]]:
+def fetch_financials(ticker: str, expected_period: Optional[date] = None) -> Optional[Dict[str, Any]]:
     """
     Fetches quarterly income statement via yfinance and computes QoQ / YoY deltas.
+
+    expected_period: if provided, warns when yfinance's most-recent quarter end date
+    is more than 45 days earlier (indicates data hasn't updated yet after the call).
+    The caller can treat the return value as stale and omit it from the email.
     """
     try:
         df = yf.Ticker(ticker).quarterly_income_stmt
@@ -223,6 +227,21 @@ def fetch_financials(ticker: str) -> Optional[Dict[str, Any]]:
             return None
 
         cols = df.columns  # most-recent quarter first
+
+        # Staleness check: yfinance often lags 1-3 days after the earnings call.
+        # If the most-recent period end is suspiciously old relative to today, flag it.
+        if hasattr(cols[0], "date"):
+            most_recent = cols[0].date()
+        elif hasattr(cols[0], "strftime"):
+            most_recent = cols[0].to_pydatetime().date()
+        else:
+            most_recent = None
+
+        if most_recent and expected_period and (expected_period - most_recent).days > 45:
+            print(f"  [{ticker}] yfinance financials lag detected: "
+                  f"most recent quarter ends {most_recent}, expected near {expected_period}. "
+                  f"Metrics table will be omitted — EDGAR press release has the current numbers.")
+            return None
 
         def val(col_idx: int, row: str) -> Optional[float]:
             return _safe(df[cols[col_idx]].get(row)) if col_idx < df.shape[1] else None
@@ -272,15 +291,24 @@ def fetch_financials(ticker: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def fetch_earnings_report(ticker: str) -> Optional[Dict[str, Any]]:
+def fetch_earnings_report(ticker: str, earnings_date: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
-    Fetches transcript (EDGAR) + financials (yfinance).
-    Returns None if the transcript is unavailable.
+    Fetches earnings press release / transcript (EDGAR) + financials (yfinance).
+    Returns None if no EDGAR content is found.
+
+    earnings_date: ISO date string (YYYY-MM-DD) of the earnings call, used to detect
+    whether yfinance's income statement has already updated to the new quarter.
     """
     transcript = fetch_transcript(ticker)
     if not transcript:
         return None
-    return {"ticker": ticker, "transcript": transcript, "financials": fetch_financials(ticker)}
+    expected = None
+    if earnings_date:
+        try:
+            expected = date.fromisoformat(earnings_date)
+        except ValueError:
+            pass
+    return {"ticker": ticker, "transcript": transcript, "financials": fetch_financials(ticker, expected)}
 
 
 def watchlist_due_today(tickers: List[str], earnings_dates: Dict[str, str]) -> List[str]:

@@ -101,12 +101,13 @@ def run(force: bool = False) -> None:
     print(f"[{now:%Y-%m-%d %H:%M}] Done.")
 
 
-def _send_earnings_for(tickers: list, label: str) -> None:
-    """Fetch transcript + financials from FMP and send one email per ticker."""
+def _send_earnings_for(tickers: list, label: str, earnings_dates: dict = None) -> None:
+    """Fetch press release + financials from EDGAR/yfinance and send one email per ticker."""
     for ticker in tickers:
         try:
             print(f"  [{ticker}] Fetching earnings report...")
-            report = earnings_fetcher.fetch_earnings_report(ticker)
+            ed_str = (earnings_dates or {}).get(ticker)
+            report = earnings_fetcher.fetch_earnings_report(ticker, earnings_date=ed_str)
             if not report:
                 print(f"  [{ticker}] Transcript not available yet — will retry at next check.")
                 continue
@@ -151,7 +152,7 @@ def run_earnings(label: str = "", force_tickers: list = None) -> None:
         return
 
     print(f"  Earnings due: {due}")
-    _send_earnings_for(due, label)
+    _send_earnings_for(due, label, earnings_dates=earnings_dates)
 
 
 schedule.every().day.at(REPORT_TIME).do(run)
