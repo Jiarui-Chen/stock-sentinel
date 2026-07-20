@@ -2,7 +2,7 @@ import json
 import sys
 import time
 import schedule
-from datetime import datetime
+from datetime import datetime, date, timedelta
 
 from src.data import fetcher, news_fetcher, fundamentals_fetcher, earnings_fetcher
 from src.indicators import rsi, rsi_divergence, macd, option_flow
@@ -101,41 +101,94 @@ def run(force: bool = False) -> None:
     print(f"[{now:%Y-%m-%d %H:%M}] Done.")
 
 
-def _send_earnings_for(tickers: list, label: str, earnings_dates: dict = None) -> None:
-    """Fetch press release + financials from EDGAR/yfinance and send one email per ticker."""
+def _send_earnings_for(tickers: list, earnings_dates: dict = None) -> None:
+    """
+    First-time send for each ticker.
+    - Skips tickers already sent with a complete metrics table (prevents duplicate sends
+      e.g. for BMO earners that run at morning AND evening check).
+    - Always sends even when metrics are unavailable; records the gap so the morning
+      retry knows to follow up.
+    """
     for ticker in tickers:
         try:
-            print(f"  [{ticker}] Fetching earnings report...")
             ed_str = (earnings_dates or {}).get(ticker)
+
+            if ed_str and earnings_fetcher.already_sent_ok(ticker, ed_str):
+                print(f"  [{ticker}] Already sent with metrics — skipping.")
+                continue
+
+            print(f"  [{ticker}] Fetching earnings report...")
             report = earnings_fetcher.fetch_earnings_report(ticker, earnings_date=ed_str)
             if not report:
-                print(f"  [{ticker}] Transcript not available yet — will retry at next check.")
+                print(f"  [{ticker}] No EDGAR content found — skipping.")
                 continue
+
+            has_metrics = report.get("financials") is not None
             analysis = earnings_analyzer.analyze(
-                ticker,
-                report.get("financials"),
-                report["transcript"],
+                ticker, report.get("financials"), report["transcript"]
             )
             if not analysis:
                 continue
+
             earnings_reporter.send(ticker, analysis, report.get("financials"))
+
+            if ed_str:
+                earnings_fetcher.record_sent(ticker, ed_str, has_metrics)
+            if not has_metrics:
+                print(f"  [{ticker}] Metrics not yet available — morning retry scheduled.")
+
         except Exception as e:
             print(f"  [{ticker}] Earnings report failed: {e}")
 
 
+def _retry_earnings_for(tickers: list, earnings_dates: dict) -> None:
+    """
+    Morning retry for tickers whose first email had no metrics table.
+    Sends a follow-up email only if yfinance has now updated; abandons silently otherwise.
+    """
+    for ticker in tickers:
+        try:
+            ed_str = earnings_dates.get(ticker)
+            print(f"  [{ticker}] Retry — checking if metrics are now available...")
+            report = earnings_fetcher.fetch_earnings_report(ticker, earnings_date=ed_str)
+
+            if not report or not report.get("financials"):
+                print(f"  [{ticker}] Metrics still unavailable — retry abandoned.")
+                # Mark has_metrics=True so we don't retry again tomorrow.
+                if ed_str:
+                    earnings_fetcher.record_sent(ticker, ed_str, True)
+                continue
+
+            analysis = earnings_analyzer.analyze(
+                ticker, report["financials"], report["transcript"]
+            )
+            if analysis:
+                earnings_reporter.send(ticker, analysis, report["financials"])
+            if ed_str:
+                earnings_fetcher.record_sent(ticker, ed_str, True)
+
+        except Exception as e:
+            print(f"  [{ticker}] Retry failed: {e}")
+
+
 def run_earnings(label: str = "", force_tickers: list = None) -> None:
     """
-    Check watchlist for tickers that reported earnings today or yesterday,
-    then send one analysis email per ticker.
+    Check watchlist for tickers that reported earnings today or yesterday.
 
-    Pass force_tickers to bypass the date check (for testing).
+    Two-pass logic:
+      1. First send  — fires for any ticker due today/yesterday that hasn't been sent yet
+                       (or was sent successfully with metrics already).
+      2. Morning retry — fires for tickers whose previous evening email had no metrics table;
+                         sends a follow-up only if yfinance has updated by now.
+
+    Pass force_tickers to bypass date/state checks (for testing).
     """
     now = datetime.now()
     print(f"[{now:%Y-%m-%d %H:%M}] Earnings check ({label or 'scheduled'})...")
 
     if force_tickers:
-        print(f"  Test mode — skipping date check, running: {force_tickers}")
-        _send_earnings_for(force_tickers, label)
+        print(f"  Test mode — skipping date/state checks, running: {force_tickers}")
+        _send_earnings_for(force_tickers)
         return
 
     tickers      = load_watchlist()
@@ -146,13 +199,28 @@ def run_earnings(label: str = "", force_tickers: list = None) -> None:
         if fundamentals.get(t, {}).get("earnings_date")
     }
 
-    due = earnings_fetcher.watchlist_due_today(tickers, earnings_dates)
-    if not due:
-        print("  No earnings due today/yesterday.")
+    yesterday_str = (date.today() - timedelta(days=1)).isoformat()
+
+    # Tickers that were sent yesterday without a metrics table → morning retry.
+    retry = earnings_fetcher.get_retry_tickers(for_date=yesterday_str)
+
+    # Due tickers for a first-time send; exclude those already queued for retry
+    # (they were already sent last night — the retry path handles the follow-up).
+    retry_set = set(retry)
+    due       = earnings_fetcher.watchlist_due_today(tickers, earnings_dates)
+    first_time = [t for t in due if t not in retry_set]
+
+    if not first_time and not retry:
+        print("  No earnings due and no pending retries.")
         return
 
-    print(f"  Earnings due: {due}")
-    _send_earnings_for(due, label, earnings_dates=earnings_dates)
+    if first_time:
+        print(f"  First send: {first_time}")
+        _send_earnings_for(first_time, earnings_dates=earnings_dates)
+
+    if retry:
+        print(f"  Morning retry (metrics check): {retry}")
+        _retry_earnings_for(retry, earnings_dates)
 
 
 schedule.every().day.at(REPORT_TIME).do(run)
