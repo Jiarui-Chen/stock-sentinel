@@ -1,4 +1,5 @@
 import json
+import socket
 import sys
 import time
 import schedule
@@ -14,6 +15,18 @@ from src.config import REPORT_TIME, EARNINGS_EVENING_TIME, EARNINGS_MORNING_TIME
 def load_watchlist() -> list[str]:
     with open("watchlist.json") as f:
         return json.load(f)["tickers"]
+
+
+def _wait_for_network(timeout: int = 120) -> bool:
+    """Block until finance.yahoo.com is reachable, or timeout (seconds) expires."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            socket.create_connection(("finance.yahoo.com", 443), timeout=5)
+            return True
+        except OSError:
+            time.sleep(10)
+    return False
 
 
 def run(force: bool = False) -> None:
@@ -61,6 +74,11 @@ def run(force: bool = False) -> None:
             active_tickers.append(ticker)
         except Exception as e:
             print(f"  [{ticker}] Fetch failed: {e} — skipping.")
+
+    if not active_tickers:
+        print(f"[{now:%Y-%m-%d %H:%M}] No tickers returned data — "
+              "network may be unavailable. Aborting run without sending email.")
+        return
 
     print("  Enriching with Claude...")
     enriched, _ = analyzer.enrich(results)
@@ -236,6 +254,12 @@ if __name__ == "__main__":
         force_tickers  = [t.upper() for t in sys.argv[idx + 1:] if not t.startswith("--")] or None
         run_earnings(label="manual", force_tickers=force_tickers)
         sys.exit(0)
+
+    print("Stock Sentinel starting — waiting for network...")
+    if not _wait_for_network(timeout=120):
+        print("[ERROR] Network unreachable after 120s — exiting. launchd will restart the process.")
+        sys.exit(1)
+
     print(f"Stock Sentinel running — report at {REPORT_TIME}, "
           f"earnings checks at {EARNINGS_EVENING_TIME} and {EARNINGS_MORNING_TIME}.")
     while True:
