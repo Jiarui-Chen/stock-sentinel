@@ -5,10 +5,10 @@ import time
 import schedule
 from datetime import datetime, date, timedelta
 
-from src.data import fetcher, news_fetcher, fundamentals_fetcher, earnings_fetcher
+from src.data import fetcher, news_fetcher, fundamentals_fetcher, earnings_fetcher, pre_earnings_fetcher
 from src.indicators import rsi, rsi_divergence, macd, option_flow
-from src.agent import analyzer, news_analyzer, sentinel_analyzer, earnings_analyzer
-from src.report import email_reporter, earnings_reporter
+from src.agent import analyzer, news_analyzer, sentinel_analyzer, earnings_analyzer, pre_earnings_analyzer
+from src.report import email_reporter, earnings_reporter, pre_earnings_reporter
 from src.config import REPORT_TIME, EARNINGS_EVENING_TIME, EARNINGS_MORNING_TIME
 
 
@@ -103,6 +103,29 @@ def run(force: bool = False) -> None:
         for r in enriched
     ]
 
+    print("  Checking pre-earnings triggers...")
+    for ticker in active_tickers:
+        ed_str = fundamentals.get(ticker, {}).get("earnings_date")
+        if not ed_str:
+            continue
+        try:
+            days_until = (date.fromisoformat(ed_str) - date.today()).days
+            if not (0 < days_until <= 7):
+                continue
+            if pre_earnings_fetcher.already_sent(ticker, ed_str):
+                continue
+            history = pre_earnings_fetcher.fetch_history(ticker)
+            if not history:
+                print(f"  [{ticker}] No pre-earnings history available.")
+                continue
+            financials   = earnings_fetcher.fetch_financials(ticker)
+            news_articles = ticker_articles.get(ticker, [])
+            watch_points  = pre_earnings_analyzer.analyze(ticker, history, financials, news_articles)
+            pre_earnings_reporter.send(ticker, ed_str, history, watch_points)
+            pre_earnings_fetcher.mark_sent(ticker, ed_str, watch_points)
+        except Exception as e:
+            print(f"  [{ticker}] Pre-earnings email failed: {e}")
+
     print("  Scanning option flow...")
     option_flow_findings = option_flow.scan_all(active_tickers)
     if option_flow_findings:
@@ -141,14 +164,16 @@ def _send_earnings_for(tickers: list, earnings_dates: dict = None) -> None:
                 print(f"  [{ticker}] No EDGAR content found — skipping.")
                 continue
 
-            has_metrics = report.get("financials") is not None
-            analysis = earnings_analyzer.analyze(
-                ticker, report.get("financials"), report["transcript"]
+            has_metrics  = report.get("financials") is not None
+            watch_points = pre_earnings_fetcher.get_watch_points(ticker, ed_str)
+            analysis     = earnings_analyzer.analyze(
+                ticker, report.get("financials"), report["transcript"],
+                watch_points=watch_points,
             )
             if not analysis:
                 continue
 
-            earnings_reporter.send(ticker, analysis, report.get("financials"))
+            earnings_reporter.send(ticker, analysis, report.get("financials"), watch_points)
 
             if ed_str:
                 earnings_fetcher.record_sent(ticker, ed_str, has_metrics)
@@ -177,11 +202,13 @@ def _retry_earnings_for(tickers: list, earnings_dates: dict) -> None:
                     earnings_fetcher.record_sent(ticker, ed_str, True)
                 continue
 
-            analysis = earnings_analyzer.analyze(
-                ticker, report["financials"], report["transcript"]
+            watch_points = pre_earnings_fetcher.get_watch_points(ticker, ed_str)
+            analysis     = earnings_analyzer.analyze(
+                ticker, report["financials"], report["transcript"],
+                watch_points=watch_points,
             )
             if analysis:
-                earnings_reporter.send(ticker, analysis, report["financials"])
+                earnings_reporter.send(ticker, analysis, report["financials"], watch_points)
             if ed_str:
                 earnings_fetcher.record_sent(ticker, ed_str, True)
 
@@ -253,6 +280,24 @@ if __name__ == "__main__":
         idx            = sys.argv.index("--earnings-now")
         force_tickers  = [t.upper() for t in sys.argv[idx + 1:] if not t.startswith("--")] or None
         run_earnings(label="manual", force_tickers=force_tickers)
+        sys.exit(0)
+    if "--pre-earnings-now" in sys.argv:
+        idx           = sys.argv.index("--pre-earnings-now")
+        force_tickers = [t.upper() for t in sys.argv[idx + 1:] if not t.startswith("--")]
+        if not force_tickers:
+            print("Usage: python3 main.py --pre-earnings-now TICKER [TICKER ...]")
+            sys.exit(1)
+        for ticker in force_tickers:
+            history = pre_earnings_fetcher.fetch_history(ticker)
+            if not history:
+                print(f"[{ticker}] No pre-earnings history available.")
+                continue
+            fundamentals  = fundamentals_fetcher.fetch_all([ticker])
+            ed_str        = fundamentals.get(ticker, {}).get("earnings_date") or "TBD"
+            financials    = earnings_fetcher.fetch_financials(ticker)
+            news_articles = news_fetcher.fetch_news(ticker)
+            watch_points  = pre_earnings_analyzer.analyze(ticker, history, financials, news_articles)
+            pre_earnings_reporter.send(ticker, ed_str, history, watch_points)
         sys.exit(0)
 
     print("Stock Sentinel starting — waiting for network...")
