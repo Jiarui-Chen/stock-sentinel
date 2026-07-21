@@ -110,7 +110,7 @@ def run(force: bool = False) -> None:
             continue
         try:
             days_until = (date.fromisoformat(ed_str) - date.today()).days
-            if not (0 < days_until <= 7):
+            if not (0 < days_until <= 3):
                 continue
             if pre_earnings_fetcher.already_sent(ticker, ed_str):
                 continue
