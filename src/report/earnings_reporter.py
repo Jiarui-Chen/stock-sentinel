@@ -80,6 +80,25 @@ def _metrics_table(financials: Dict) -> str:
     {period_note}"""
 
 
+def _watch_point_review_block(watch_points: List[str], responses: List[str]) -> str:
+    items = ""
+    for i, (point, response) in enumerate(zip(watch_points, responses), 1):
+        items += (
+            f'<div style="padding:10px 0;border-top:1px solid #f1f5f9;">'
+            f'<div style="font-size:11px;color:#64748b;margin-bottom:4px;">Q{i}. {point}</div>'
+            f'<div style="font-size:12px;color:#111827;line-height:1.6;">{response}</div>'
+            f'</div>'
+        )
+    return f"""
+        <div style="border:1px solid #e2e8f0;border-radius:6px;margin:16px 0;overflow:hidden;">
+            <div style="padding:10px 16px;background:#1e3a5f;">
+                <span style="font-weight:bold;font-size:13px;color:#f8fafc;
+                             letter-spacing:0.5px;">财报前瞻回顾</span>
+            </div>
+            <div style="padding:0 16px 8px;">{items}</div>
+        </div>"""
+
+
 def _talking_points_block(points: List[str]) -> str:
     items = "".join(
         f'<li style="padding:4px 0;font-size:12px;color:#374151;line-height:1.6;">{p}</li>'
@@ -97,13 +116,25 @@ def _section(title: str, content: str) -> str:
     </div>"""
 
 
-def build_html(ticker: str, analysis: Dict[str, Any], financials: Optional[Dict]) -> str:
+def build_html(
+    ticker: str,
+    analysis: Dict[str, Any],
+    financials: Optional[Dict],
+    watch_points: Optional[List[str]] = None,
+) -> str:
     today = date.today().strftime("%B %d, %Y")
 
-    metrics   = _metrics_table(financials or {})
-    points    = _talking_points_block(analysis.get("key_talking_points") or [])
+    metrics    = _metrics_table(financials or {})
+    points     = _talking_points_block(analysis.get("key_talking_points") or [])
     highlights = f'<p style="font-size:12px;color:#374151;line-height:1.7;margin:0;">{analysis.get("financial_highlights", "")}</p>'
     outlook    = f'<p style="font-size:12px;color:#374151;line-height:1.7;margin:0;">{analysis.get("outlook_interpretation", "")}</p>'
+
+    responses = analysis.get("watch_point_responses") or []
+    review_block = (
+        _watch_point_review_block(watch_points, responses)
+        if watch_points and responses
+        else ""
+    )
 
     return f"""<!DOCTYPE html>
 <html>
@@ -118,6 +149,8 @@ def build_html(ticker: str, analysis: Dict[str, Any], financials: Optional[Dict]
     </div>
 
     <div style="padding:8px 24px 28px;">
+
+        {review_block}
 
         <div style="border:1px solid #e2e8f0;border-radius:6px;margin:16px 0;overflow:hidden;">
             <div style="padding:10px 16px;background:#1e3a5f;">
@@ -166,10 +199,15 @@ def build_html(ticker: str, analysis: Dict[str, Any], financials: Optional[Dict]
 </html>"""
 
 
-def send(ticker: str, analysis: Dict[str, Any], financials: Optional[Dict]) -> None:
+def send(
+    ticker: str,
+    analysis: Dict[str, Any],
+    financials: Optional[Dict],
+    watch_points: Optional[List[str]] = None,
+) -> None:
     today   = date.today().strftime("%b %d, %Y")
     subject = f"财报速递 · {ticker} · {today}"
-    html    = build_html(ticker, analysis, financials)
+    html    = build_html(ticker, analysis, financials, watch_points)
 
     outer = MIMEMultipart("related")
     outer["Subject"] = subject
