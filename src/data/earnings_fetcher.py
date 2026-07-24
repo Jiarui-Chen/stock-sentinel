@@ -11,6 +11,7 @@ EDGAR notes:
 
 from __future__ import annotations
 
+import atexit
 import json
 import math
 import re
@@ -20,7 +21,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import requests
-import yfinance as yf
+
+from src.data.yf_session import make_ticker
 
 # ── Send-state helpers ────────────────────────────────────────────────────────
 # Tracks which tickers were sent and whether they included a metrics table,
@@ -74,12 +76,27 @@ _LOOKBACK_DAYS = 90   # how far back to search for the latest transcript
 
 _cik_cache: Dict[str, str] = {}
 
+# One reused session for all EDGAR calls (many per earnings run). requests.get()
+# would spin up and tear down a fresh connection pool on every call; a single
+# module-level Session keeps connections pooled and closes cleanly at exit,
+# avoiding the fd churn that contributed to the launchd fd-limit crash-loop.
+_edgar_session = requests.Session()
+_edgar_session.headers.update(_HEADERS)
+
+
+@atexit.register
+def _close_edgar_session() -> None:
+    try:
+        _edgar_session.close()
+    except Exception:
+        pass
+
 
 # ── EDGAR helpers ─────────────────────────────────────────────────────────────
 
 def _edgar_get(url: str) -> requests.Response:
     time.sleep(0.11)   # stay under the 10 req/sec EDGAR limit
-    r = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
+    r = _edgar_session.get(url, timeout=_TIMEOUT)
     r.raise_for_status()
     return r
 
@@ -265,7 +282,7 @@ def fetch_financials(ticker: str, expected_period: Optional[date] = None) -> Opt
     The caller can treat the return value as stale and omit it from the email.
     """
     try:
-        df = yf.Ticker(ticker).quarterly_income_stmt
+        df = make_ticker(ticker).quarterly_income_stmt
         if df is None or df.empty or df.shape[1] < 2:
             return None
 

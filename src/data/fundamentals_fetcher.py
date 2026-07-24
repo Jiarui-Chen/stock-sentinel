@@ -1,14 +1,14 @@
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as _TimeoutError
 from typing import Any, Dict, List
 
-import yfinance as yf
+from src.data.yf_session import make_ticker
 
 _FETCH_TIMEOUT = 10
 _MAX_WORKERS   = 8
 
 
 def _fetch_ticker_data(ticker: str):
-    t = yf.Ticker(ticker)
+    t = make_ticker(ticker)
     ed_df = None
     try:
         ed_df = t.earnings_dates

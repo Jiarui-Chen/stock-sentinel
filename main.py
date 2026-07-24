@@ -1,7 +1,10 @@
 import json
+import os
+import resource
 import socket
 import sys
 import time
+import traceback
 import schedule
 from datetime import datetime, date, timedelta
 
@@ -17,13 +20,40 @@ def load_watchlist() -> list[str]:
         return json.load(f)["tickers"]
 
 
+def _raise_fd_limit() -> None:
+    """
+    Bump the soft open-file limit up to the hard limit at startup.
+
+    Defense-in-depth: launchd starts us with a 256-fd soft limit, which a slow
+    resource leak can exhaust. Raising the soft limit to the hard ceiling buys
+    headroom; it is NOT a substitute for closing fds (see src/data/yf_session.py).
+    """
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        if soft < hard:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+            print(f"[init] Raised RLIMIT_NOFILE soft limit {soft} -> {hard}")
+    except (ValueError, OSError) as e:
+        print(f"[init] Could not raise RLIMIT_NOFILE: {e}")
+
+
+def _fd_count() -> int:
+    """Best-effort count of open file descriptors for this process (-1 if unknown)."""
+    try:
+        return len(os.listdir("/dev/fd"))
+    except OSError:
+        return -1
+
+
 def _wait_for_network(timeout: int = 120) -> bool:
     """Block until finance.yahoo.com is reachable, or timeout (seconds) expires."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            socket.create_connection(("finance.yahoo.com", 443), timeout=5)
-            return True
+            # Context-managed so the probe socket is always closed — a bare
+            # create_connection() leaks the fd on every successful probe.
+            with socket.create_connection(("finance.yahoo.com", 443), timeout=5):
+                return True
         except OSError:
             time.sleep(10)
     return False
@@ -268,11 +298,39 @@ def run_earnings(label: str = "", force_tickers: list = None) -> None:
         _retry_earnings_for(retry, earnings_dates)
 
 
-schedule.every().day.at(REPORT_TIME).do(run)
-schedule.every().day.at(EARNINGS_EVENING_TIME).do(run_earnings, label="evening")
-schedule.every().day.at(EARNINGS_MORNING_TIME).do(run_earnings, label="morning")
+def _job(name: str, fn, *args, **kwargs) -> None:
+    """
+    Run a scheduled callable so that NO exception ever escapes back into
+    schedule.run_pending().
+
+    If an exception propagates out of run_pending(), the `schedule` library never
+    advances the job's next-run time, so the job stays "due" and refires every
+    30s forever — turning one failure into a crash-loop that hammers the network
+    and leaks fds. Catching here lets schedule advance normally. As a bonus we
+    log the open-fd count around each run so a leak shows up in the logs before
+    it exhausts the limit.
+    """
+    before = _fd_count()
+    try:
+        fn(*args, **kwargs)
+    except Exception as e:
+        print(f"[ERROR] Scheduled job '{name}' failed: {e}")
+        traceback.print_exc()
+    finally:
+        after = _fd_count()
+        if before >= 0 and after >= 0:
+            delta = after - before
+            note = f"  (+{delta} — possible leak)" if delta > 10 else ""
+            print(f"[fd] '{name}' open fds: {before} -> {after}{note}")
+
+
+schedule.every().day.at(REPORT_TIME).do(_job, "daily", run)
+schedule.every().day.at(EARNINGS_EVENING_TIME).do(_job, "earnings-evening", run_earnings, label="evening")
+schedule.every().day.at(EARNINGS_MORNING_TIME).do(_job, "earnings-morning", run_earnings, label="morning")
 
 if __name__ == "__main__":
+    _raise_fd_limit()
+
     if "--now" in sys.argv:
         run(force=True)
         sys.exit(0)

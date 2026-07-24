@@ -26,6 +26,19 @@
         <string>1</string>
     </dict>
 
+    <!-- Raise the fd ceiling above launchd's 256-fd default as defense-in-depth.
+         main.py also pushes the soft limit up to the hard limit at startup. -->
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>4096</integer>
+    </dict>
+    <key>HardResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>8192</integer>
+    </dict>
+
     <key>StandardOutPath</key>
     <string>/Users/jackiechen/Desktop/stock-sentinel-prod/logs/sentinel.log</string>
 
