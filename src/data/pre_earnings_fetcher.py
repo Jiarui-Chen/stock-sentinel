@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
-import yfinance as yf
+
+from src.data.yf_session import ticker_scope
 
 _MAX_QUARTERS = 8
 _WINDOW       = 10   # trading days before / after earnings
@@ -98,20 +99,21 @@ def fetch_history(ticker: str) -> Optional[List[Dict[str, Any]]]:
     Returns None if there is not enough history to produce at least one data point.
     """
     try:
-        t     = yf.Ticker(ticker)
-        ed_df = t.earnings_dates
-        if ed_df is None or ed_df.empty:
-            return None
+        with ticker_scope(ticker) as t:
+            ed_df = t.earnings_dates
+            if ed_df is None or ed_df.empty:
+                return None
 
-        # earnings_dates index is tz-aware (America/New_York); match it explicitly
-        today     = pd.Timestamp.now(tz="America/New_York").normalize()
-        past      = ed_df[ed_df.index < today].sort_index(ascending=False)
-        if past.empty:
-            return None
+            # earnings_dates index is tz-aware (America/New_York); match it explicitly
+            today = pd.Timestamp.now(tz="America/New_York").normalize()
+            past  = ed_df[ed_df.index < today].sort_index(ascending=False)
+            if past.empty:
+                return None
 
-        past_dates = list(past.index[: _MAX_QUARTERS])
+            past_dates = list(past.index[: _MAX_QUARTERS])
 
-        hist = t.history(period="3y")
+            hist = t.history(period="3y")
+
         if hist is None or hist.empty:
             return None
 

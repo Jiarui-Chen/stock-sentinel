@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 import time
 
-import yfinance as yf
+from src.data.yf_session import make_ticker
 
 _FETCH_TIMEOUT = 20   # seconds per attempt
 _MAX_RETRIES   = 2    # retry once on timeout or network error
@@ -15,7 +15,7 @@ def fetch_news(ticker: str) -> List[Dict[str, str]]:
     for attempt in range(_MAX_RETRIES):
         try:
             with ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(lambda: yf.Ticker(ticker).news or [])
+                future = executor.submit(lambda: make_ticker(ticker).news or [])
                 try:
                     news = future.result(timeout=_FETCH_TIMEOUT)
                 except _TimeoutError:
