@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from typing import Dict, List, Optional
 
-import yfinance as yf
+from src.data.yf_session import make_ticker
 
 # ── Thresholds (tune here) ────────────────────────────────────────────────────
 MIN_OI          = 20    # skip contracts with OI below this — avoids spurious ratios
@@ -94,7 +94,7 @@ def _scan_chain(df, opt_type: str, exp_str: str, spot: float, days_to_exp: int, 
 def _scan_ticker(ticker: str, prices: Optional[Dict[str, float]]) -> List[Dict]:
     """Scan one ticker across its upcoming expirations. Raises on fatal error."""
     today = date.today()
-    t     = yf.Ticker(ticker)
+    t     = make_ticker(ticker)
 
     exp_dates = list(t.options or [])
     if not exp_dates:
