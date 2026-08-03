@@ -19,14 +19,12 @@ EMAIL_RECIPIENTS = [e.strip() for e in os.getenv("EMAIL_RECIPIENT", "").split(",
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
 
-# Scheduler — 24-hour format, runs on weekdays only
+# Scheduler — 24-hour format, runs every day
 REPORT_TIME = os.getenv("REPORT_TIME", "18:00")
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL        = "claude-haiku-4-5-20251001"   # bulk tasks: RSI enrichment, news summarization
 CLAUDE_MODEL_SMART  = "claude-sonnet-4-6"           # reasoning tasks: Sentinel picks, earnings analysis
-
-FMP_API_KEY = os.getenv("FMP_API_KEY", "")
 
 # Earnings email schedule (24h, local time)
 EARNINGS_EVENING_TIME = os.getenv("EARNINGS_EVENING_TIME", "20:30")  # primary: same night
