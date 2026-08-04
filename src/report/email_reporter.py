@@ -1,224 +1,178 @@
-import base64
-import struct
-import zlib
 import smtplib
-from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from email.mime.image import MIMEImage
-from datetime import date, datetime
-from typing import Dict, List, Any, Optional, Tuple
-from src.config import EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECIPIENTS, SMTP_HOST, SMTP_PORT
+from email.mime.text import MIMEText
+from datetime import date
+from typing import Dict, List, Any, Optional
 
-_CHART_POINTS = 21
+from src.config import (
+    EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECIPIENTS, SMTP_HOST, SMTP_PORT,
+    RSI_WATCH_THRESHOLD, RSI_WARN_THRESHOLD,
+)
 
-
-def _fmt(val: Optional[float]) -> str:
-    return f"{val:.1f}" if val is not None else "—"
-
-
-def _rsi_color(alert: Optional[str]) -> str:
-    if alert in {"strong_buy", "consider_buy"}:
-        return "#16a34a"
-    if alert in {"watch", "warn"}:
-        return "#d97706"
-    if alert in {"consider_sell", "strong_sell"}:
-        return "#dc2626"
-    return "#374151"
+_GREEN, _ORANGE, _RED = "#16a34a", "#d97706", "#dc2626"
+_NONE_COLOR = "#d1d5db"  # neutral gray outline — no signal / insufficient data
 
 
-def _rsi_span(val: str, alert: Optional[str]) -> str:
-    label = f' <span style="font-weight:bold;">{alert.replace("_", " ").upper()}</span>' if alert else ""
-    return f'<span style="color:{_rsi_color(alert)};">{val}{label}</span>'
+def _circle(color: str) -> str:
+    return f'<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:{color};"></span>'
 
 
-def _macd_hist_span(sign: Optional[str], momentum: Optional[str]) -> str:
-    if not sign or not momentum:
-        return '<span style="color:#9ca3af;">—</span>'
-    sym = ("+" if sign == "positive" else "−") + ("↑" if momentum == "increasing" else "↓")
-    if sign == "positive" and momentum == "increasing":
-        color = "#16a34a"
-    elif sign == "negative" and momentum == "decreasing":
-        color = "#dc2626"
-    else:
-        color = "#d97706"
-    return f'<span style="font-weight:bold;color:{color};">{sym}</span>'
-
-
-def _macd_chart_png(macd_series: list, signal_series: list, hist_series: list) -> bytes:
-    """Returns raw PNG bytes for the MACD chart using only stdlib. Returns b'' if data insufficient."""
-    ms = macd_series[-_CHART_POINTS:]
-    ss = signal_series[-_CHART_POINTS:]
-    hs = hist_series[-_CHART_POINTS:]
-    n  = len(hs)
-    if n < 2 or len(ms) < 2 or len(ss) < 2:
-        return b""
-
-    W, H = 300, 80
-    pad_x, pad_y = 8, 6
-    cw = W - 2 * pad_x
-    ch = H - 2 * pad_y
-    bar_w = cw / n
-
-    all_vals = ms + ss + hs
-    y_min = min(all_vals)
-    y_max = max(all_vals)
-    y_rng = y_max - y_min or 1.0
-
-    def v2y(v: float) -> int:
-        return max(pad_y, min(H - pad_y - 1, int(pad_y + ch * (1.0 - (v - y_min) / y_rng))))
-
-    def i2x(i: int) -> int:
-        return int(pad_x + (i + 0.5) * bar_w)
-
-    canvas = bytearray([255] * (W * H * 3))
-
-    def set_px(x: int, y: int, r: int, g: int, b: int) -> None:
-        if 0 <= x < W and 0 <= y < H:
-            idx = (y * W + x) * 3
-            canvas[idx], canvas[idx + 1], canvas[idx + 2] = r, g, b
-
-    zero_y = v2y(0)
-
-    for i, h in enumerate(hs):
-        x0 = int(pad_x + i * bar_w) + 2
-        x1 = int(pad_x + (i + 1) * bar_w) - 2
-        r, g, b = (134, 239, 172) if h >= 0 else (252, 165, 165)
-        top, bot = sorted([v2y(h), zero_y])
-        for yi in range(top, bot + 1):
-            for xi in range(x0, x1 + 1):
-                set_px(xi, yi, r, g, b)
-
-    x = pad_x
-    while x < W - pad_x:
-        for xi in range(x, min(x + 4, W - pad_x)):
-            set_px(xi, zero_y, 209, 213, 219)
-        x += 8
-
-    def draw_line(x0: int, y0: int, x1: int, y1: int, r: int, g: int, b: int) -> None:
-        dx, dy = abs(x1 - x0), abs(y1 - y0)
-        sx = 1 if x0 < x1 else -1
-        sy = 1 if y0 < y1 else -1
-        err = dx - dy
-        while True:
-            set_px(x0, y0,     r, g, b)
-            set_px(x0, y0 - 1, r, g, b)
-            set_px(x0, y0 + 1, r, g, b)
-            if x0 == x1 and y0 == y1:
-                break
-            e2 = 2 * err
-            if e2 > -dy:
-                err -= dy
-                x0 += sx
-            if e2 < dx:
-                err += dx
-                y0 += sy
-
-    for i in range(n - 1):
-        draw_line(i2x(i), v2y(ms[i]), i2x(i + 1), v2y(ms[i + 1]), 59, 130, 246)
-    for i in range(n - 1):
-        draw_line(i2x(i), v2y(ss[i]), i2x(i + 1), v2y(ss[i + 1]), 249, 115, 22)
-
-    def _chunk(tag: bytes, data: bytes) -> bytes:
-        c = tag + data
-        return struct.pack(">I", len(data)) + c + struct.pack(">I", zlib.crc32(c) & 0xFFFFFFFF)
-
-    raw = bytearray()
-    for y in range(H):
-        raw.append(0)
-        raw.extend(canvas[y * W * 3:(y + 1) * W * 3])
-
+def _hollow_circle() -> str:
     return (
-        b"\x89PNG\r\n\x1a\n"
-        + _chunk(b"IHDR", struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0))
-        + _chunk(b"IDAT", zlib.compress(bytes(raw), 9))
-        + _chunk(b"IEND", b"")
+        f'<span style="display:inline-block;width:10px;height:10px;border-radius:50%;'
+        f'background:transparent;border:1.5px solid {_NONE_COLOR};"></span>'
     )
 
 
-def _label_cell(text: str) -> str:
-    return (
-        f'<td style="padding:9px 12px 9px 16px;color:#9ca3af;font-size:10px;font-weight:bold;'
-        f'text-transform:uppercase;white-space:nowrap;vertical-align:top;width:64px;">{text}</td>'
-    )
+def _rsi_circle(val: Optional[float]) -> str:
+    if val is None:
+        return _hollow_circle()
+    if val < RSI_WATCH_THRESHOLD:
+        return _circle(_GREEN)
+    if val < RSI_WARN_THRESHOLD:
+        return _circle(_ORANGE)
+    return _circle(_RED)
 
 
-def _timeframe_row(
-    label: str, ticker: str,
-    rsi_val: str, rsi_alert: Optional[str], div: Optional[str],
-    macd_series: list, signal_series: list, hist_series: list,
-    hist_sign: Optional[str], hist_momentum: Optional[str],
-    charts: Dict[str, bytes],
-    border_top: bool = True,
-) -> str:
-    border = "border-top:1px solid #f1f5f9;" if border_top else ""
-
-    div_html = ""
-    if div:
-        col = "#16a34a" if div == "bullish" else "#dc2626"
-        div_html = f' &nbsp;<span style="color:{col};font-weight:bold;font-size:11px;">{div.upper()} DIV</span>'
-
-    cid = f"macd_{ticker}_{label.lower()}"
-    png = _macd_chart_png(macd_series, signal_series, hist_series)
-    if png:
-        charts[cid] = png
-        chart_div = f'<div style="margin-top:6px;"><img src="cid:{cid}" width="300" style="width:100%;max-width:300px;height:auto;display:block;" alt=""/></div>'
-    else:
-        chart_div = ""
-
-    return f"""
-        <tr style="{border}">
-            {_label_cell(label)}
-            <td style="padding:9px 16px 8px;font-size:12px;">
-                RSI {_rsi_span(rsi_val, rsi_alert)}{div_html}
-                {chart_div}
-                <div style="font-size:10px;color:#6b7280;margin-top:3px;">
-                    MACD Hist {_macd_hist_span(hist_sign, hist_momentum)}
-                    <span style="margin-left:10px;color:#3b82f6;">&#9644; MACD</span>
-                    <span style="margin-left:6px;color:#f97316;">&#9644; Signal</span>
-                </div>
-            </td>
-        </tr>"""
+def _divergence_circle(div: Optional[str]) -> str:
+    if div == "bullish":
+        return _circle(_GREEN)
+    if div == "bearish":
+        return _circle(_RED)
+    return _hollow_circle()
 
 
-def _fmt_k(n: int) -> str:
-    return f"{n/1000:.1f}K" if n >= 1000 else str(n)
+def _macd_zero_circle(sign: Optional[str]) -> str:
+    if sign == "positive":
+        return _circle(_GREEN)
+    if sign == "negative":
+        return _circle(_RED)
+    return _hollow_circle()
 
 
-def _option_flow_rows(anomalies: List[Dict]) -> str:
-    """Render top-5 option flow anomaly rows inside a ticker card."""
-    if not anomalies:
-        return ""
+def _macd_hist_circle(momentum: Optional[str]) -> str:
+    if momentum == "increasing":
+        return _circle(_GREEN)
+    if momentum == "decreasing":
+        return _circle(_RED)
+    return _hollow_circle()
 
-    display = anomalies[:5]
-    lines = []
-    for a in display:
-        type_color = "#3b82f6" if a["type"] == "call" else "#dc2626"
-        moneyness_html = a["moneyness"]
-        exp_short = datetime.strptime(a["expiration"], "%Y-%m-%d").strftime("%b %d")
-        lines.append(
-            f'<div style="font-size:11px;color:#374151;padding:2px 0;">'
-            f'<span style="color:#6b7280;">{exp_short}</span> &nbsp;'
-            f'<span style="font-weight:bold;color:{type_color};">{a["type"].upper()}</span> '
-            f'${a["strike"]:,.1f} &nbsp;'
-            f'{moneyness_html} &nbsp;'
-            f'<span style="font-weight:bold;color:#7c3aed;">{a["ratio"]:.1f}×</span>'
-            f'<span style="color:#9ca3af;"> &nbsp;{_fmt_k(a["volume"])} vol / {_fmt_k(a["oi"])} OI</span>'
-            f'</div>'
+
+def _macd_cross_circle(cross: Optional[str]) -> str:
+    if cross == "bullish":
+        return _circle(_GREEN)
+    if cross == "bearish":
+        return _circle(_RED)
+    return _hollow_circle()
+
+
+def _pe_cell(val: Optional[float]) -> str:
+    text = f"{val:.1f}" if val is not None else "—"
+    return f'<td style="padding:6px 8px;font-size:11px;color:#374151;text-align:center;white-space:nowrap;">{text}</td>'
+
+
+def _scorecard_header() -> str:
+    def group(label: str) -> str:
+        return (
+            f'<td colspan="2" style="padding:5px 4px;font-size:8px;font-weight:bold;color:#9ca3af;'
+            f'text-transform:uppercase;text-align:center;border-bottom:1px solid #e2e8f0;">{label}</td>'
         )
 
-    count  = len(anomalies)
-    more   = f' <span style="color:#9ca3af;font-weight:normal;">(+{count - 5} more)</span>' if count > 5 else ""
-    inner  = "".join(lines)
+    def single(label: str) -> str:
+        return (
+            f'<td rowspan="2" style="padding:6px 4px;font-size:8px;font-weight:bold;color:#9ca3af;'
+            f'text-transform:uppercase;text-align:center;vertical-align:bottom;border-bottom:1px solid #e2e8f0;">{label}</td>'
+        )
+
+    def sub(label: str) -> str:
+        return f'<td style="padding:3px 4px 6px;font-size:8px;font-weight:bold;color:#9ca3af;text-align:center;">{label}</td>'
+
+    row1 = (
+        '<tr style="background:#f8fafc;">'
+        '<td rowspan="2" style="padding:6px 8px 6px 12px;font-size:9px;font-weight:bold;color:#9ca3af;'
+        'text-transform:uppercase;vertical-align:bottom;border-bottom:1px solid #e2e8f0;">Ticker</td>'
+        + group("RSI") + group("Divergence")
+        + single("MACD&nbsp;Zero") + single("MACD&nbsp;Cross") + single("MACD&nbsp;Hist")
+        + '<td rowspan="2" style="padding:6px 8px;font-size:9px;font-weight:bold;color:#9ca3af;text-transform:uppercase;'
+          'text-align:center;vertical-align:bottom;border-bottom:1px solid #e2e8f0;">Fwd&nbsp;PE</td>'
+        + '</tr>'
+    )
+    row2 = (
+        '<tr style="background:#f8fafc;">'
+        + sub("D") + sub("W") + sub("D") + sub("W")
+        + '</tr>'
+    )
+    return row1 + row2
+
+
+def _scorecard_row(r: Dict) -> str:
+    def cell(inner: str) -> str:
+        return f'<td style="padding:7px 4px;text-align:center;">{inner}</td>'
+
     return f"""
         <tr style="border-top:1px solid #f1f5f9;">
-            {_label_cell("Options")}
-            <td style="padding:8px 16px;font-size:12px;">
-                <span style="color:#7c3aed;font-weight:bold;font-size:10px;text-transform:uppercase;">
-                    {count} anomalous contract{"s" if count != 1 else ""}{more}
-                </span>
-                <div style="margin-top:4px;">{inner}</div>
-            </td>
+            <td style="padding:7px 8px 7px 12px;font-weight:bold;font-size:12px;color:#111827;white-space:nowrap;">{r["ticker"]}</td>
+            {cell(_rsi_circle(r.get("daily_rsi")))}
+            {cell(_rsi_circle(r.get("weekly_rsi")))}
+            {cell(_divergence_circle(r.get("daily_rsi_divergence")))}
+            {cell(_divergence_circle(r.get("weekly_rsi_divergence")))}
+            {cell(_macd_zero_circle(r.get("weekly_macd_line_sign")))}
+            {cell(_macd_cross_circle(r.get("weekly_macd_cross")))}
+            {cell(_macd_hist_circle(r.get("weekly_macd_hist_momentum")))}
+            {_pe_cell(r.get("pe_forward"))}
         </tr>"""
+
+
+def _scorecard_sort_key(r: Dict) -> tuple:
+    def rsi_extreme(val: Optional[float]) -> int:
+        if val is None:
+            return 1
+        return 0 if (val < RSI_WATCH_THRESHOLD or val >= RSI_WARN_THRESHOLD) else 1
+
+    has_extreme_rsi = min(rsi_extreme(r.get("daily_rsi")), rsi_extreme(r.get("weekly_rsi")))
+    has_divergence  = 0 if (r.get("daily_rsi_divergence") or r.get("weekly_rsi_divergence")) else 1
+    has_cross       = 0 if r.get("weekly_macd_cross") else 1
+    return (has_extreme_rsi, has_divergence, has_cross)
+
+
+def _scorecard_legend() -> str:
+    text = (
+        "RSI oversold/neutral/overbought &nbsp;·&nbsp; Divergence = price vs. RSI diverging "
+        "&nbsp;·&nbsp; MACD (weekly) Zero = trend bias, Cross = timing trigger, Hist = momentum building/fading"
+    )
+    key = (
+        '<div style="display:flex;gap:12px;flex-wrap:wrap;padding:4px 0 0;font-size:10px;color:#374151;">'
+        f'<span>{_circle(_GREEN)}&nbsp;bullish/oversold</span>'
+        f'<span>{_circle(_ORANGE)}&nbsp;neutral/mixed</span>'
+        f'<span>{_circle(_RED)}&nbsp;bearish/overbought</span>'
+        f'<span>{_hollow_circle()}&nbsp;no signal</span>'
+        '</div>'
+    )
+
+    return f"""
+        <div style="padding:8px 16px;font-size:10.5px;line-height:1.5;color:#6b7280;border-bottom:1px solid #f1f5f9;">
+            {text}
+            {key}
+        </div>"""
+
+
+def _scorecard_block(results: List[Dict]) -> str:
+    if not results:
+        return ""
+    rows = "".join(_scorecard_row(r) for r in sorted(results, key=_scorecard_sort_key))
+    return f"""
+    <div style="border:1px solid #e2e8f0;border-radius:6px;margin:16px 0;overflow:hidden;">
+        <div style="padding:10px 16px;background:#1e3a5f;">
+            <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">SCORECARD</span>
+        </div>
+        {_scorecard_legend()}
+        <div style="overflow-x:auto;">
+            <table style="border-collapse:collapse;width:100%;">
+                {_scorecard_header()}
+                {rows}
+            </table>
+        </div>
+    </div>"""
 
 
 def _upcoming_earnings_block(results: List[Dict]) -> str:
@@ -269,73 +223,31 @@ def _upcoming_earnings_block(results: List[Dict]) -> str:
     </div>"""
 
 
-def _ticker_card(r: Dict, charts: Dict[str, bytes], option_flow: Optional[List[Dict]] = None) -> str:
-    rows = ""
+def _top_news_block(top_news: List[Dict]) -> str:
+    if not top_news:
+        return ""
 
-    if r.get("news_summary"):
-        sentiment  = r.get("news_sentiment") or ""
-        sent_color = {"bullish": "#16a34a", "bearish": "#dc2626"}.get(sentiment, "#6b7280")
-        sent_label = f'<span style="color:{sent_color};font-weight:bold;">{sentiment.upper()}</span>  ' if sentiment else ""
-        implication = r.get("news_implication") or ""
-        impl = f'<div style="color:#6b7280;margin-top:3px;">{implication}</div>' if implication else ""
-        rows += f"""
-            <tr>
-                {_label_cell("News")}
-                <td style="padding:9px 16px;font-size:12px;color:#374151;">{sent_label}{r["news_summary"]}{impl}</td>
-            </tr>"""
-
-    rows += _timeframe_row(
-        label="Daily", ticker=r["ticker"],
-        rsi_val=_fmt(r.get("daily_rsi")), rsi_alert=r.get("daily_alert"),
-        div=r.get("daily_rsi_divergence"),
-        macd_series=r.get("daily_macd_series", []),
-        signal_series=r.get("daily_signal_series", []),
-        hist_series=r.get("daily_hist_series", []),
-        hist_sign=r.get("daily_macd_hist_sign"),
-        hist_momentum=r.get("daily_macd_hist_momentum"),
-        charts=charts,
-        border_top=bool(r.get("news_summary")),
-    )
-
-    rows += _timeframe_row(
-        label="Weekly", ticker=r["ticker"],
-        rsi_val=_fmt(r.get("weekly_rsi")), rsi_alert=r.get("weekly_alert"),
-        div=r.get("weekly_rsi_divergence"),
-        macd_series=r.get("weekly_macd_series", []),
-        signal_series=r.get("weekly_signal_series", []),
-        hist_series=r.get("weekly_hist_series", []),
-        hist_sign=r.get("weekly_macd_hist_sign"),
-        hist_momentum=r.get("weekly_macd_hist_momentum"),
-        charts=charts,
-        border_top=True,
-    )
-
-    rows += _option_flow_rows(option_flow or [])
+    items = ""
+    for n in top_news:
+        sentiment   = n.get("news_sentiment") or ""
+        sent_color  = {"bullish": "#16a34a", "bearish": "#dc2626"}.get(sentiment, "#6b7280")
+        sent_label  = f'<span style="color:{sent_color};font-weight:bold;">{sentiment.upper()}</span>  ' if sentiment else ""
+        implication = n.get("news_implication") or ""
+        impl_html   = f'<div style="color:#6b7280;margin-top:3px;">{implication}</div>' if implication else ""
+        items += f"""
+        <div style="padding:10px 0;border-top:1px solid #f1f5f9;">
+            <div style="font-weight:bold;font-size:13px;color:#111827;margin-bottom:3px;">{n["ticker"]}</div>
+            <div style="font-size:12px;color:#374151;line-height:1.6;">{sent_label}{n.get("news_summary", "")}</div>
+            {impl_html}
+        </div>"""
 
     return f"""
-    <div style="border:1px solid #e2e8f0;border-radius:6px;margin:10px 0;overflow:hidden;">
-        <div style="padding:9px 16px;background:#f8fafc;border-bottom:1px solid #e2e8f0;">
-            <span style="font-weight:bold;font-size:14px;color:#111827;">{r["ticker"]}</span>
+    <div style="border:1px solid #e2e8f0;border-radius:6px;margin:16px 0;overflow:hidden;">
+        <div style="padding:10px 16px;background:#1e3a5f;">
+            <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">TOP NEWS</span>
         </div>
-        <table style="width:100%;border-collapse:collapse;">
-            {rows}
-        </table>
+        <div style="padding:0 16px;">{items}</div>
     </div>"""
-
-
-def _sort_key(r: Dict) -> tuple:
-    priority = {
-        "strong_buy": 0, "strong_sell": 0,
-        "consider_buy": 1, "consider_sell": 1,
-        "watch": 2, "warn": 2,
-    }
-    alert_rank = min(
-        priority.get(r.get("daily_alert"), 3),
-        priority.get(r.get("weekly_alert"), 3),
-    )
-    has_div  = 0 if (r.get("daily_rsi_divergence") or r.get("weekly_rsi_divergence")) else 1
-    has_news = 0 if r.get("news_summary") else 1
-    return (alert_rank, has_div, has_news)
 
 
 def _analyst_picks_block(picks: Dict) -> str:
@@ -381,10 +293,8 @@ def _analyst_picks_block(picks: Dict) -> str:
 def build_html(
     results: List[Dict[str, Any]],
     analyst_picks: Optional[Dict] = None,
-    option_flow: Optional[Dict[str, List]] = None,
-) -> Tuple[str, Dict[str, bytes]]:
-    """Returns (html_string, {cid: png_bytes}) for CID-embedded chart images."""
-    charts: Dict[str, bytes] = {}
+    top_news: Optional[List[Dict]] = None,
+) -> str:
     today = date.today().strftime("%B %d, %Y")
 
     signal_count = len([
@@ -396,12 +306,10 @@ def build_html(
 
     picks_block    = _analyst_picks_block(analyst_picks) if analyst_picks else ""
     earnings_block = _upcoming_earnings_block(results)
-    ticker_cards   = "".join(
-        _ticker_card(r, charts, (option_flow or {}).get(r["ticker"]))
-        for r in sorted(results, key=_sort_key)
-    )
+    news_block     = _top_news_block(top_news or [])
+    scorecard      = _scorecard_block(results)
 
-    html = f"""<!DOCTYPE html>
+    return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="font-family:Arial,sans-serif;max-width:660px;margin:0 auto;color:#111827;background:#ffffff;">
@@ -416,20 +324,23 @@ def build_html(
     <div style="padding:4px 24px 24px;">
         {picks_block}
         {earnings_block}
-        {ticker_cards}
+        {news_block}
+        {scorecard}
     </div>
 
     <div style="background:#f1f5f9;padding:12px 24px;text-align:center;color:#9ca3af;font-size:11px;border-radius:0 0 8px 8px;">
-        RSI: &lt;35 watch · &lt;30 consider buy · &lt;25 strong buy · &gt;65 warn · &gt;70 consider sell · &gt;75 strong sell · Not financial advice.
+        Not financial advice.
     </div>
 
 </body>
 </html>"""
 
-    return html, charts
 
-
-def send(results: List[Dict[str, Any]], analyst_picks: Optional[Dict] = None, option_flow: Optional[Dict[str, List]] = None) -> None:
+def send(
+    results: List[Dict[str, Any]],
+    analyst_picks: Optional[Dict] = None,
+    top_news: Optional[List[Dict]] = None,
+) -> None:
     today = date.today().strftime("%b %d, %Y")
     signal_count = len([
         r for r in results
@@ -440,24 +351,17 @@ def send(results: List[Dict[str, Any]], analyst_picks: Optional[Dict] = None, op
     if signal_count:
         subject += f" ({signal_count} signal{'s' if signal_count != 1 else ''})"
 
-    html, charts = build_html(results, analyst_picks, option_flow)
+    html = build_html(results, analyst_picks, top_news)
 
-    # MIMEMultipart("related") allows CID-referenced inline images
-    outer = MIMEMultipart("related")
-    outer["Subject"] = subject
-    outer["From"]    = EMAIL_SENDER
-    outer["To"]      = ", ".join(EMAIL_RECIPIENTS)
-    outer.attach(MIMEText(html, "html"))
-
-    for cid, png_bytes in charts.items():
-        img = MIMEImage(png_bytes, "png")
-        img.add_header("Content-ID", f"<{cid}>")
-        img.add_header("Content-Disposition", "inline")
-        outer.attach(img)
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"]    = EMAIL_SENDER
+    msg["To"]      = ", ".join(EMAIL_RECIPIENTS)
+    msg.attach(MIMEText(html, "html"))
 
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as smtp:
         smtp.starttls()
         smtp.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        smtp.sendmail(EMAIL_SENDER, EMAIL_RECIPIENTS, outer.as_string())
+        smtp.sendmail(EMAIL_SENDER, EMAIL_RECIPIENTS, msg.as_string())
 
-    print(f"[OK] Report sent — {subject} ({len(charts)} chart images attached)")
+    print(f"[OK] Report sent — {subject}")
