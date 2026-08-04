@@ -4,6 +4,8 @@ Builds and sends the earnings call analysis email.
 
 from __future__ import annotations
 
+import json
+import re
 import smtplib
 from datetime import date
 from email.mime.multipart import MIMEMultipart
@@ -11,6 +13,39 @@ from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional
 
 from src.config import EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECIPIENTS, SMTP_HOST, SMTP_PORT
+
+# Leading list marker: a bullet or an enumerator like "1." / "2)" / "3、".
+_ENUM_PREFIX = re.compile(r"^\s*(?:[-*•·]|\d+[.)、．）])\s*")
+
+
+def _normalize_points(value: Any) -> List[str]:
+    """
+    Coerce a list-typed field into a clean list of strings before rendering.
+
+    Defensive twin of src/agent/earnings_analyzer._normalize_points: the analyzer
+    already normalizes its output, but the renderer is where a stray string would
+    become one bullet per character (e.g. 财/报/结/果), so we guard here too.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return []
+        # A JSON-encoded array, e.g. '["点一", "点二"]'.
+        if s.startswith("["):
+            try:
+                parsed = json.loads(s)
+                if isinstance(parsed, list):
+                    value = parsed
+            except ValueError:
+                pass
+        # Still a string → split a newline/numbered blob into separate points.
+        if isinstance(value, str):
+            value = [_ENUM_PREFIX.sub("", ln) for ln in s.splitlines()]
+    if not isinstance(value, list):
+        value = [value]
+    return [str(p).strip() for p in value if p is not None and str(p).strip()]
 
 
 def _delta_span(val: Optional[float], is_margin: bool = False) -> str:
@@ -81,6 +116,8 @@ def _metrics_table(financials: Dict) -> str:
 
 
 def _watch_point_review_block(watch_points: List[str], responses: List[str]) -> str:
+    watch_points = _normalize_points(watch_points)
+    responses    = _normalize_points(responses)
     items = ""
     for i, (point, response) in enumerate(zip(watch_points, responses), 1):
         items += (
@@ -102,7 +139,7 @@ def _watch_point_review_block(watch_points: List[str], responses: List[str]) -> 
 def _talking_points_block(points: List[str]) -> str:
     items = "".join(
         f'<li style="padding:4px 0;font-size:12px;color:#374151;line-height:1.6;">{p}</li>'
-        for p in points
+        for p in _normalize_points(points)
     )
     return f'<ul style="margin:8px 0;padding-left:18px;">{items}</ul>'
 
@@ -129,7 +166,7 @@ def build_html(
     highlights = f'<p style="font-size:12px;color:#374151;line-height:1.7;margin:0;">{analysis.get("financial_highlights", "")}</p>'
     outlook    = f'<p style="font-size:12px;color:#374151;line-height:1.7;margin:0;">{analysis.get("outlook_interpretation", "")}</p>'
 
-    responses = analysis.get("watch_point_responses") or []
+    responses = _normalize_points(analysis.get("watch_point_responses"))
     review_block = (
         _watch_point_review_block(watch_points, responses)
         if watch_points and responses

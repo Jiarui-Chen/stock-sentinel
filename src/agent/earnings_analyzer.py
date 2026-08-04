@@ -8,13 +8,50 @@ forward-looking interpretation — all written in Chinese (简体中文).
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional
+import re
+from typing import Any, Dict, List, Optional
 
 import anthropic
 
 from src.config import ANTHROPIC_API_KEY, CLAUDE_MODEL_SMART
 
 _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+# Leading list marker: a bullet or an enumerator like "1." / "2)" / "3、".
+_ENUM_PREFIX = re.compile(r"^\s*(?:[-*•·]|\d+[.)、．）])\s*")
+
+
+def _normalize_points(value: Any) -> List[str]:
+    """
+    Coerce a list-typed analysis field into a clean list of strings.
+
+    Claude's tool output occasionally returns an array field (key_talking_points,
+    watch_point_responses) as a single string instead of a list — a lone point, a
+    JSON-encoded array, or a newline/numbered blob. Rendering code that iterates
+    the value would then walk it one character per bullet (e.g. 财/报/结/果), so we
+    normalize to a real list here. A twin of this helper guards the renderer in
+    src/report/earnings_reporter.py.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return []
+        # A JSON-encoded array, e.g. '["点一", "点二"]'.
+        if s.startswith("["):
+            try:
+                parsed = json.loads(s)
+                if isinstance(parsed, list):
+                    value = parsed
+            except ValueError:
+                pass
+        # Still a string → split a newline/numbered blob into separate points.
+        if isinstance(value, str):
+            value = [_ENUM_PREFIX.sub("", ln) for ln in s.splitlines()]
+    if not isinstance(value, list):
+        value = [value]
+    return [str(p).strip() for p in value if p is not None and str(p).strip()]
 
 _SYSTEM_PROMPT = """\
 你是一名专业的股票分析师，专注于解读上市公司的财报信息。
@@ -117,6 +154,13 @@ def analyze(
         raw = next(b for b in response.content if b.type == "tool_use").input
         if isinstance(raw, str):
             raw = json.loads(raw)
+        if isinstance(raw, dict):
+            # These are declared as arrays in the tool schema, but tool-use input
+            # isn't type-enforced — coerce them so the renderer never iterates a
+            # bare string character-by-character.
+            raw["key_talking_points"] = _normalize_points(raw.get("key_talking_points"))
+            if "watch_point_responses" in raw:
+                raw["watch_point_responses"] = _normalize_points(raw.get("watch_point_responses"))
         return raw
     except Exception as e:
         print(f"[WARN] [{ticker}] Earnings analysis failed: {e}")
