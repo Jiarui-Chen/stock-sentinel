@@ -67,7 +67,6 @@ def run(force: bool = False) -> None:
     tickers = load_watchlist()
     active_tickers = []
     results = []
-    macd_viz = {}
     for ticker in tickers:
         try:
             print(f"  [{ticker}] Fetching data...")
@@ -90,17 +89,13 @@ def run(force: bool = False) -> None:
                 "weekly_rsi_divergence": rsi_divergence.detect(weekly_df, rsi_divergence._SWING_WINDOW_WEEKLY),
                 "daily_macd_hist_sign": daily_macd["sign"],
                 "daily_macd_hist_momentum": daily_macd["momentum"],
+                "daily_macd_line_sign": daily_macd["macd_line_sign"],
+                "daily_macd_cross": daily_macd["cross"],
                 "weekly_macd_hist_sign": weekly_macd["sign"],
                 "weekly_macd_hist_momentum": weekly_macd["momentum"],
+                "weekly_macd_line_sign": weekly_macd["macd_line_sign"],
+                "weekly_macd_cross": weekly_macd["cross"],
             })
-            macd_viz[ticker] = {
-                "daily_macd_series":    daily_macd["macd_series"],
-                "daily_signal_series":  daily_macd["signal_series"],
-                "daily_hist_series":    daily_macd["hist_series"],
-                "weekly_macd_series":   weekly_macd["macd_series"],
-                "weekly_signal_series": weekly_macd["signal_series"],
-                "weekly_hist_series":   weekly_macd["hist_series"],
-            }
             active_tickers.append(ticker)
         except Exception as e:
             print(f"  [{ticker}] Fetch failed: {e} — skipping.")
@@ -122,13 +117,23 @@ def run(force: bool = False) -> None:
     twitter_insights = news_analyzer.analyze(ticker_articles)
     print(f"  News summarized for: {list(twitter_insights.keys()) or 'none'}")
 
+    top_news = sorted(
+        (
+            {"ticker": t, **info}
+            for t, info in twitter_insights.items()
+            if info.get("news_importance") is not None
+        ),
+        key=lambda item: item["news_importance"],
+        reverse=True,
+    )[:5]
+
     enriched = [
         {
             **r,
             **twitter_insights.get(r["ticker"], {}),
-            **macd_viz.get(r["ticker"], {}),
             "earnings_date":   fundamentals.get(r["ticker"], {}).get("earnings_date"),
             "earnings_timing": fundamentals.get(r["ticker"], {}).get("earnings_timing"),
+            "pe_forward":      fundamentals.get(r["ticker"], {}).get("pe_forward"),
         }
         for r in enriched
     ]
@@ -168,7 +173,7 @@ def run(force: bool = False) -> None:
           f"Sell: {[p['ticker'] for p in analyst_picks.get('sell', [])]}")
 
     print("  Sending report...")
-    email_reporter.send(enriched, analyst_picks, option_flow_findings)
+    email_reporter.send(enriched, analyst_picks, top_news)
     print(f"[{now:%Y-%m-%d %H:%M}] Done.")
 
 

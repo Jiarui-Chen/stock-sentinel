@@ -17,6 +17,7 @@ Your job:
 2. Summarize what you find in 1-2 sentences in Chinese
 3. Set sentiment based on what is reported: "bullish", "bearish", "neutral", or "mixed"
 4. Write a 1-sentence implication in Chinese, if the content supports one
+5. Score importance 1-10: how much this news should matter to an investor holding or watching this stock, based on its investment implication (e.g. earnings surprises, guidance changes, major partnerships, regulatory action, executive changes score high; routine analyst notes, minor price commentary, or recycled old news score low). Judge each ticker independently — do not try to rank tickers against each other.
 
 Rules:
 - ONLY use facts explicitly stated in the provided titles and summaries — never infer or fabricate
@@ -36,8 +37,9 @@ _TOOL = {
                 "sentiment":   {"type": "string", "enum": ["bullish", "bearish", "neutral", "mixed"]},
                 "summary":     {"type": "string"},
                 "implication": {"type": "string"},
+                "importance":  {"type": "integer", "minimum": 1, "maximum": 10},
             },
-            "required": ["sentiment", "summary"],
+            "required": ["sentiment", "summary", "importance"],
         },
     },
 }
@@ -64,6 +66,7 @@ def _analyze_batch(batch: Dict[str, List[Dict[str, str]]]) -> Dict[str, Any]:
             "news_sentiment":   data.get("sentiment"),
             "news_summary":     data.get("summary"),
             "news_implication": data.get("implication"),
+            "news_importance":  data.get("importance"),
         }
         for ticker, data in raw.items()
         if isinstance(data, dict) and data.get("summary")
@@ -71,7 +74,7 @@ def _analyze_batch(batch: Dict[str, List[Dict[str, str]]]) -> Dict[str, Any]:
 
 
 def analyze(ticker_articles: Dict[str, List[Dict[str, str]]]) -> Dict[str, Any]:
-    """Returns {ticker: {news_sentiment, news_summary, news_implication}} for tickers with relevant news."""
+    """Returns {ticker: {news_sentiment, news_summary, news_implication, news_importance}} for tickers with relevant news."""
     active = {t: articles for t, articles in ticker_articles.items() if articles}
     if not active:
         return {}
