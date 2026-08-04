@@ -4,6 +4,8 @@ Builds and sends the earnings call analysis email.
 
 from __future__ import annotations
 
+import json
+import re
 import smtplib
 from datetime import date
 from email.mime.multipart import MIMEMultipart
