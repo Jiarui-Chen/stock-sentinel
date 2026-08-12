@@ -10,7 +10,7 @@ from datetime import datetime, date, timedelta
 
 from src.data import fetcher, news_fetcher, fundamentals_fetcher, earnings_fetcher, pre_earnings_fetcher
 from src.indicators import rsi, rsi_divergence, macd, option_flow
-from src.agent import analyzer, news_analyzer, sentinel_analyzer, earnings_analyzer, pre_earnings_analyzer
+from src.agent import news_analyzer, sentinel_analyzer, earnings_analyzer, pre_earnings_analyzer
 from src.report import email_reporter, earnings_reporter, pre_earnings_reporter
 from src.config import REPORT_TIME, EARNINGS_EVENING_TIME, EARNINGS_MORNING_TIME
 
@@ -105,9 +105,6 @@ def run(force: bool = False) -> None:
               "network may be unavailable. Aborting run without sending email.")
         return
 
-    print("  Enriching with Claude...")
-    enriched, _ = analyzer.enrich(results)
-
     print("  Fetching news and fundamentals...")
     ticker_articles = news_fetcher.fetch_all(active_tickers)
     fundamentals    = fundamentals_fetcher.fetch_all(active_tickers)
@@ -135,7 +132,7 @@ def run(force: bool = False) -> None:
             "earnings_timing": fundamentals.get(r["ticker"], {}).get("earnings_timing"),
             "pe_forward":      fundamentals.get(r["ticker"], {}).get("pe_forward"),
         }
-        for r in enriched
+        for r in results
     ]
 
     print("  Checking pre-earnings triggers...")

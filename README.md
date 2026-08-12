@@ -78,7 +78,6 @@ stock-sentinel/
     │   ├── macd.py                # MACD histogram + line series computation
     │   └── option_flow.py         # Abnormal volume/OI ratio scanner
     ├── agent/
-    │   ├── analyzer.py            # Claude Haiku RSI enrichment
     │   ├── news_analyzer.py       # Claude Haiku news summarization (Chinese)
     │   └── sentinel_analyzer.py   # Claude Sonnet top 3 buy/sell picks (Chinese)
     └── report/
@@ -177,11 +176,10 @@ tail -f ~/Desktop/stock-sentinel-prod/logs/sentinel.error.log
 
 ## Cost
 
-Three Claude API calls per run — Haiku for bulk tasks, Sonnet for Sentinel picks:
+Two Claude API calls per daily run — Haiku for bulk tasks, Sonnet for Sentinel picks:
 
 | Call | Model | Purpose |
 |------|-------|---------|
-| RSI enrichment | Haiku | Per-stock signal classification |
 | News summarization | Haiku | 48h headline digest in Chinese |
 | Sentinel picks | Sonnet | Top 3 buy/sell reasoning in Chinese |
 
