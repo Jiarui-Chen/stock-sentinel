@@ -8,6 +8,7 @@ from src.config import (
     EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECIPIENTS, SMTP_HOST, SMTP_PORT,
     RSI_WATCH_THRESHOLD, RSI_WARN_THRESHOLD,
 )
+from src.i18n import t, fmt_date_long, fmt_date_short, fmt_date_compact
 
 _GREEN, _ORANGE, _RED = "#16a34a", "#d97706", "#dc2626"
 _NONE_COLOR = "#d1d5db"  # neutral gray outline — no signal / insufficient data
@@ -90,16 +91,16 @@ def _scorecard_header() -> str:
     row1 = (
         '<tr style="background:#f8fafc;">'
         '<td rowspan="2" style="padding:6px 8px 6px 12px;font-size:9px;font-weight:bold;color:#9ca3af;'
-        'text-transform:uppercase;vertical-align:bottom;border-bottom:1px solid #e2e8f0;">Ticker</td>'
-        + group("RSI") + group("Divergence")
-        + single("MACD&nbsp;Zero") + single("MACD&nbsp;Cross") + single("MACD&nbsp;Hist")
+        'text-transform:uppercase;vertical-align:bottom;border-bottom:1px solid #e2e8f0;">' + t("col_ticker") + '</td>'
+        + group(t("col_rsi")) + group(t("col_divergence"))
+        + single(t("col_macd_zero")) + single(t("col_macd_cross")) + single(t("col_macd_hist"))
         + '<td rowspan="2" style="padding:6px 8px;font-size:9px;font-weight:bold;color:#9ca3af;text-transform:uppercase;'
-          'text-align:center;vertical-align:bottom;border-bottom:1px solid #e2e8f0;">Fwd&nbsp;PE</td>'
+          'text-align:center;vertical-align:bottom;border-bottom:1px solid #e2e8f0;">' + t("col_fwd_pe") + '</td>'
         + '</tr>'
     )
     row2 = (
         '<tr style="background:#f8fafc;">'
-        + sub("D") + sub("W") + sub("D") + sub("W")
+        + sub(t("col_daily")) + sub(t("col_weekly")) + sub(t("col_daily")) + sub(t("col_weekly"))
         + '</tr>'
     )
     return row1 + row2
@@ -136,16 +137,13 @@ def _scorecard_sort_key(r: Dict) -> tuple:
 
 
 def _scorecard_legend() -> str:
-    text = (
-        "RSI oversold/neutral/overbought &nbsp;·&nbsp; Divergence = price vs. RSI diverging "
-        "&nbsp;·&nbsp; MACD (weekly) Zero = trend bias, Cross = timing trigger, Hist = momentum building/fading"
-    )
+    text = t("legend_text")
     key = (
         '<div style="display:flex;gap:12px;flex-wrap:wrap;padding:4px 0 0;font-size:10px;color:#374151;">'
-        f'<span>{_circle(_GREEN)}&nbsp;bullish/oversold</span>'
-        f'<span>{_circle(_ORANGE)}&nbsp;neutral/mixed</span>'
-        f'<span>{_circle(_RED)}&nbsp;bearish/overbought</span>'
-        f'<span>{_hollow_circle()}&nbsp;no signal</span>'
+        f'<span>{_circle(_GREEN)}&nbsp;{t("legend_bullish")}</span>'
+        f'<span>{_circle(_ORANGE)}&nbsp;{t("legend_neutral")}</span>'
+        f'<span>{_circle(_RED)}&nbsp;{t("legend_bearish")}</span>'
+        f'<span>{_hollow_circle()}&nbsp;{t("legend_none")}</span>'
         '</div>'
     )
 
@@ -163,7 +161,7 @@ def _scorecard_block(results: List[Dict]) -> str:
     return f"""
     <div style="border:1px solid #e2e8f0;border-radius:6px;margin:16px 0;overflow:hidden;">
         <div style="padding:10px 16px;background:#1e3a5f;">
-            <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">SCORECARD</span>
+            <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">{t("sec_scorecard")}</span>
         </div>
         {_scorecard_legend()}
         <div style="overflow-x:auto;">
@@ -196,12 +194,16 @@ def _upcoming_earnings_block(results: List[Dict]) -> str:
     entries.sort(key=lambda x: x[1])
     rows_html = ""
     for ticker, ed, days_until, timing in entries:
-        label     = ed.strftime("%b %d")
-        countdown = "Today" if days_until == 0 else "Tomorrow" if days_until == 1 else f"in {days_until} days"
+        label     = fmt_date_compact(ed)
+        countdown = (
+            t("earn_today")    if days_until == 0 else
+            t("earn_tomorrow") if days_until == 1 else
+            t("earn_in_days", n=days_until)
+        )
         color     = "#dc2626" if days_until <= 1 else "#d97706"
         timing_html = {
-            "BMO": ' &nbsp;<span style="color:#6b7280;font-size:11px;">Before Market</span>',
-            "AMC": ' &nbsp;<span style="color:#6b7280;font-size:11px;">After Market</span>',
+            "BMO": f' &nbsp;<span style="color:#6b7280;font-size:11px;">{t("earn_bmo")}</span>',
+            "AMC": f' &nbsp;<span style="color:#6b7280;font-size:11px;">{t("earn_amc")}</span>',
         }.get(timing, "")
         rows_html += (
             f'<tr>'
@@ -215,7 +217,7 @@ def _upcoming_earnings_block(results: List[Dict]) -> str:
     return f"""
     <div style="border:1px solid #e2e8f0;border-radius:6px;margin:16px 0;overflow:hidden;">
         <div style="padding:10px 16px;background:#1e3a5f;border-bottom:1px solid #e2e8f0;">
-            <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">UPCOMING EARNINGS</span>
+            <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">{t("sec_earnings")}</span>
         </div>
         <table style="width:100%;border-collapse:collapse;">
             {rows_html}
@@ -229,9 +231,10 @@ def _top_news_block(top_news: List[Dict]) -> str:
 
     items = ""
     for n in top_news:
-        sentiment   = n.get("news_sentiment") or ""
+        sentiment   = (n.get("news_sentiment") or "").lower()
         sent_color  = {"bullish": "#16a34a", "bearish": "#dc2626"}.get(sentiment, "#6b7280")
-        sent_label  = f'<span style="color:{sent_color};font-weight:bold;">{sentiment.upper()}</span>  ' if sentiment else ""
+        sent_text   = t(f"sent_{sentiment}") if sentiment in ("bullish", "bearish", "mixed", "neutral") else ""
+        sent_label  = f'<span style="color:{sent_color};font-weight:bold;">{sent_text}</span>  ' if sent_text else ""
         implication = n.get("news_implication") or ""
         impl_html   = f'<div style="color:#6b7280;margin-top:3px;">{implication}</div>' if implication else ""
         items += f"""
@@ -244,7 +247,7 @@ def _top_news_block(top_news: List[Dict]) -> str:
     return f"""
     <div style="border:1px solid #e2e8f0;border-radius:6px;margin:16px 0;overflow:hidden;">
         <div style="padding:10px 16px;background:#1e3a5f;">
-            <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">TOP NEWS</span>
+            <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">{t("sec_news")}</span>
         </div>
         <div style="padding:0 16px;">{items}</div>
     </div>"""
@@ -256,13 +259,14 @@ def _analyst_picks_block(picks: Dict) -> str:
     if not buy and not sell:
         return ""
 
-    def pick_rows(items: list, color: str, arrow: str) -> str:
+    def pick_rows(items: list, color: str, arrow: str, label: str) -> str:
         rows = ""
         for p in items:
             rows += f"""
             <tr>
                 <td style="padding:8px 12px 8px 0;vertical-align:top;white-space:nowrap;">
                     <span style="font-weight:bold;font-size:13px;color:{color};">{arrow} {p["ticker"]}</span>
+                    <div style="font-size:10px;color:{color};opacity:0.85;letter-spacing:0.5px;">{label}</div>
                 </td>
                 <td style="padding:8px 0;font-size:12px;color:#374151;line-height:1.5;">
                     {p["reason"]}
@@ -270,15 +274,15 @@ def _analyst_picks_block(picks: Dict) -> str:
             </tr>"""
         return rows
 
-    buy_rows  = pick_rows(buy,  "#16a34a", "▲")
-    sell_rows = pick_rows(sell, "#dc2626", "▼")
+    buy_rows  = pick_rows(buy,  "#16a34a", "▲", t("pick_accumulate"))
+    sell_rows = pick_rows(sell, "#dc2626", "▼", t("pick_trim"))
 
     divider = '<tr><td colspan="2"><div style="border-top:1px solid #e2e8f0;margin:6px 0;"></div></td></tr>' if buy and sell else ""
 
     return f"""
     <div style="border:1px solid #e2e8f0;border-radius:6px;margin:16px 0;overflow:hidden;">
         <div style="padding:10px 16px;background:#0f172a;border-bottom:1px solid #e2e8f0;">
-            <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">SENTINEL PICKS</span>
+            <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">{t("sec_picks")}</span>
         </div>
         <div style="padding:10px 16px;">
             <table style="width:100%;border-collapse:collapse;">
@@ -290,24 +294,75 @@ def _analyst_picks_block(picks: Dict) -> str:
     </div>"""
 
 
-def build_html(
-    results: List[Dict[str, Any]],
-    analyst_picks: Optional[Dict] = None,
-    top_news: Optional[List[Dict]] = None,
-) -> str:
-    today = date.today().strftime("%B %d, %Y")
-
-    signal_count = len([
+def _signal_count(results: List[Dict]) -> int:
+    return len([
         r for r in results
         if r.get("daily_alert") or r.get("weekly_alert")
         or r.get("daily_rsi_divergence") or r.get("weekly_rsi_divergence")
     ])
-    alert_label = f"{signal_count} signal{'s' if signal_count != 1 else ''}" if signal_count else "No signals"
+
+
+def _option_flow_block(flows: List[Dict]) -> str:
+    """Top flows across the whole watchlist, one bullet per ticker (see option_flow_analyzer)."""
+    if not flows:
+        return ""
+
+    items = ""
+    for f in flows:
+        sentiment  = (f.get("sentiment") or "").lower()
+        color      = {"bullish": "#16a34a", "bearish": "#dc2626"}.get(sentiment, "#d97706")
+        sent_text  = t(f"sent_{sentiment}") if sentiment in ("bullish", "bearish", "mixed", "neutral") else ""
+        sent_label = (
+            f'<span style="color:{color};font-weight:bold;font-size:11px;">{sent_text}</span>'
+            if sent_text else ""
+        )
+        contracts  = f.get("contracts") or ""
+        contracts_html = (
+            f'<span style="font-family:monospace;font-size:11px;color:#6b7280;">{contracts}</span>'
+            if contracts else ""
+        )
+        sep = ' &nbsp;·&nbsp; ' if sent_label and contracts_html else ""
+        items += f"""
+        <div style="padding:10px 0;border-top:1px solid #f1f5f9;">
+            <div style="margin-bottom:3px;">
+                <span style="font-weight:bold;font-size:13px;color:#111827;">{f["ticker"]}</span>
+                &nbsp;&nbsp;{sent_label}{sep}{contracts_html}
+            </div>
+            <div style="font-size:12px;color:#374151;line-height:1.6;">{f["summary"]}</div>
+        </div>"""
+
+    return f"""
+    <div style="border:1px solid #e2e8f0;border-radius:6px;margin:16px 0;overflow:hidden;">
+        <div style="padding:10px 16px;background:#1e3a5f;">
+            <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">{t("sec_flow")}</span>
+        </div>
+        <div style="padding:8px 16px 0;font-size:10.5px;line-height:1.5;color:#6b7280;">
+            {t("flow_caveat")}
+        </div>
+        <div style="padding:0 16px;">{items}</div>
+    </div>"""
+
+
+def build_html(
+    results: List[Dict[str, Any]],
+    analyst_picks: Optional[Dict] = None,
+    top_news: Optional[List[Dict]] = None,
+    option_flows: Optional[List[Dict]] = None,
+) -> str:
+    today = fmt_date_long(date.today())
+
+    signal_count = _signal_count(results)
+    alert_label = (
+        t("daily_signals", n=signal_count, s="s" if signal_count != 1 else "")
+        if signal_count else t("daily_no_signals")
+    )
+    stocks_label = t("daily_stocks", n=len(results))
 
     picks_block    = _analyst_picks_block(analyst_picks) if analyst_picks else ""
     earnings_block = _upcoming_earnings_block(results)
     news_block     = _top_news_block(top_news or [])
     scorecard      = _scorecard_block(results)
+    flow_block     = _option_flow_block(option_flows or [])
 
     return f"""<!DOCTYPE html>
 <html>
@@ -315,9 +370,9 @@ def build_html(
 <body style="font-family:Arial,sans-serif;max-width:660px;margin:0 auto;color:#111827;background:#ffffff;">
 
     <div style="background:#0f172a;color:white;padding:22px 24px;border-radius:8px 8px 0 0;">
-        <h1 style="margin:0;font-size:20px;letter-spacing:0.3px;">Stock Sentinel</h1>
+        <h1 style="margin:0;font-size:20px;letter-spacing:0.3px;">{t("brand")}</h1>
         <p style="margin:5px 0 0;color:#94a3b8;font-size:13px;">
-            {today}&nbsp;&nbsp;·&nbsp;&nbsp;{len(results)} stocks&nbsp;&nbsp;·&nbsp;&nbsp;{alert_label}
+            {today}&nbsp;&nbsp;·&nbsp;&nbsp;{stocks_label}&nbsp;&nbsp;·&nbsp;&nbsp;{alert_label}
         </p>
     </div>
 
@@ -326,10 +381,11 @@ def build_html(
         {earnings_block}
         {news_block}
         {scorecard}
+        {flow_block}
     </div>
 
     <div style="background:#f1f5f9;padding:12px 24px;text-align:center;color:#9ca3af;font-size:11px;border-radius:0 0 8px 8px;">
-        Not financial advice.
+        {t("disclaimer")}
     </div>
 
 </body>
@@ -340,18 +396,16 @@ def send(
     results: List[Dict[str, Any]],
     analyst_picks: Optional[Dict] = None,
     top_news: Optional[List[Dict]] = None,
+    option_flows: Optional[List[Dict]] = None,
 ) -> None:
-    today = date.today().strftime("%b %d, %Y")
-    signal_count = len([
-        r for r in results
-        if r.get("daily_alert") or r.get("weekly_alert")
-        or r.get("daily_rsi_divergence") or r.get("weekly_rsi_divergence")
-    ])
-    subject = f"Stock Sentinel — {today}"
+    today = fmt_date_short(date.today())
+    signal_count = _signal_count(results)
+    subject = f'{t("brand")} — {today}'
     if signal_count:
-        subject += f" ({signal_count} signal{'s' if signal_count != 1 else ''})"
+        label = t("daily_signals", n=signal_count, s="s" if signal_count != 1 else "")
+        subject += f" ({label})"
 
-    html = build_html(results, analyst_picks, top_news)
+    html = build_html(results, analyst_picks, top_news, option_flows)
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
