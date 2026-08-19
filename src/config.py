@@ -12,6 +12,13 @@ RSI_WARN_THRESHOLD        = 65   # overbought — warn
 RSI_SELL_THRESHOLD        = 70   # overbought — consider sell
 RSI_STRONG_SELL_THRESHOLD = 75   # overbought — strong sell
 
+# Report language — "zh" (简体中文) or "en". Controls every string in every email,
+# both the static chrome and the language Claude is asked to write its analysis in.
+REPORT_LANGUAGE = os.getenv("REPORT_LANGUAGE", "zh").strip().lower()
+if REPORT_LANGUAGE not in ("zh", "en"):
+    print(f'[WARN] REPORT_LANGUAGE="{REPORT_LANGUAGE}" is not "zh" or "en" — falling back to "zh".')
+    REPORT_LANGUAGE = "zh"
+
 # Email
 EMAIL_SENDER = os.getenv("EMAIL_SENDER", "")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")

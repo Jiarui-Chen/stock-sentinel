@@ -13,6 +13,7 @@ from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional
 
 from src.config import EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECIPIENTS, SMTP_HOST, SMTP_PORT
+from src.i18n import t, fmt_date_long, fmt_date_short
 
 # Leading list marker: a bullet or an enumerator like "1." / "2)" / "3、".
 _ENUM_PREFIX = re.compile(r"^\s*(?:[-*•·]|\d+[.)、．）])\s*")
@@ -74,23 +75,29 @@ def _fmt_pct(v: Optional[float]) -> str:
 
 def _metrics_table(financials: Dict) -> str:
     if not financials:
-        return '<p style="color:#9ca3af;font-size:12px;">财务数据暂不可用</p>'
+        return f'<p style="color:#9ca3af;font-size:12px;">{t("er_no_financials")}</p>'
 
     rows = [
-        ("营收",       _fmt_val(financials.get("revenue")),      financials.get("revenue_qoq"),      financials.get("revenue_yoy"),      False),
-        ("毛利率",     _fmt_pct(financials.get("gross_margin")), financials.get("gross_margin_qoq"), financials.get("gross_margin_yoy"), True),
-        ("运营利润率", _fmt_pct(financials.get("op_margin")),    financials.get("op_margin_qoq"),    financials.get("op_margin_yoy"),    True),
-        ("净利润",     _fmt_val(financials.get("net_income")),   financials.get("net_income_qoq"),   financials.get("net_income_yoy"),   False),
-        ("EPS",        _fmt_val(financials.get("eps")),          financials.get("eps_qoq"),          financials.get("eps_yoy"),          False),
+        (t("er_revenue"),      _fmt_val(financials.get("revenue")),      financials.get("revenue_qoq"),      financials.get("revenue_yoy"),      False),
+        (t("er_gross_margin"), _fmt_pct(financials.get("gross_margin")), financials.get("gross_margin_qoq"), financials.get("gross_margin_yoy"), True),
+        (t("er_op_margin"),    _fmt_pct(financials.get("op_margin")),    financials.get("op_margin_qoq"),    financials.get("op_margin_yoy"),    True),
+        (t("er_net_income"),   _fmt_val(financials.get("net_income")),   financials.get("net_income_qoq"),   financials.get("net_income_yoy"),   False),
+        (t("er_eps"),          _fmt_val(financials.get("eps")),          financials.get("eps_qoq"),          financials.get("eps_yoy"),          False),
     ]
+
+    def th(label: str, align: str = "left") -> str:
+        return (
+            f'<td style="padding:7px 12px;font-size:10px;font-weight:bold;color:#9ca3af;'
+            f'text-transform:uppercase;text-align:{align};">{label}</td>'
+        )
 
     header = (
         '<tr style="background:#f8fafc;">'
-        '<td style="padding:7px 12px;font-size:10px;font-weight:bold;color:#9ca3af;text-transform:uppercase;">指标</td>'
-        '<td style="padding:7px 12px;font-size:10px;font-weight:bold;color:#9ca3af;text-transform:uppercase;text-align:right;">本季度</td>'
-        '<td style="padding:7px 12px;font-size:10px;font-weight:bold;color:#9ca3af;text-transform:uppercase;text-align:right;">QoQ</td>'
-        '<td style="padding:7px 12px;font-size:10px;font-weight:bold;color:#9ca3af;text-transform:uppercase;text-align:right;">YoY</td>'
-        '</tr>'
+        + th(t("er_col_metric"))
+        + th(t("er_col_current"), "right")
+        + th(t("er_col_qoq"),     "right")
+        + th(t("er_col_yoy"),     "right")
+        + '</tr>'
     )
 
     body = ""
@@ -105,7 +112,10 @@ def _metrics_table(financials: Dict) -> str:
         )
 
     period = financials.get("period", "")
-    period_note = f'<p style="font-size:11px;color:#9ca3af;margin:4px 0 0;">报告期：{period}</p>' if period else ""
+    period_note = (
+        f'<p style="font-size:11px;color:#9ca3af;margin:4px 0 0;">{t("er_period", period=period)}</p>'
+        if period else ""
+    )
 
     return f"""
     <table style="width:100%;border-collapse:collapse;">
@@ -130,7 +140,7 @@ def _watch_point_review_block(watch_points: List[str], responses: List[str]) -> 
         <div style="border:1px solid #e2e8f0;border-radius:6px;margin:16px 0;overflow:hidden;">
             <div style="padding:10px 16px;background:#1e3a5f;">
                 <span style="font-weight:bold;font-size:13px;color:#f8fafc;
-                             letter-spacing:0.5px;">财报前瞻回顾</span>
+                             letter-spacing:0.5px;">{t("er_sec_review")}</span>
             </div>
             <div style="padding:0 16px 8px;">{items}</div>
         </div>"""
@@ -159,7 +169,7 @@ def build_html(
     financials: Optional[Dict],
     watch_points: Optional[List[str]] = None,
 ) -> str:
-    today = date.today().strftime("%B %d, %Y")
+    today = fmt_date_long(date.today())
 
     metrics    = _metrics_table(financials or {})
     points     = _talking_points_block(analysis.get("key_talking_points") or [])
@@ -179,9 +189,9 @@ def build_html(
 <body style="font-family:Arial,sans-serif;max-width:660px;margin:0 auto;color:#111827;background:#ffffff;">
 
     <div style="background:#0f172a;color:white;padding:22px 24px;border-radius:8px 8px 0 0;">
-        <h1 style="margin:0;font-size:20px;letter-spacing:0.3px;">财报速递 · {ticker}</h1>
+        <h1 style="margin:0;font-size:20px;letter-spacing:0.3px;">{t("er_title", ticker=ticker)}</h1>
         <p style="margin:5px 0 0;color:#94a3b8;font-size:13px;">
-            Earnings Call Analysis &nbsp;·&nbsp; {today}
+            {t("er_subtitle")} &nbsp;·&nbsp; {today}
         </p>
     </div>
 
@@ -191,7 +201,7 @@ def build_html(
 
         <div style="border:1px solid #e2e8f0;border-radius:6px;margin:16px 0;overflow:hidden;">
             <div style="padding:10px 16px;background:#1e3a5f;">
-                <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">关键财务指标</span>
+                <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">{t("er_sec_metrics")}</span>
             </div>
             <div style="padding:4px 4px 8px;">
                 {metrics}
@@ -200,7 +210,7 @@ def build_html(
 
         <div style="border:1px solid #e2e8f0;border-radius:6px;margin:16px 0;overflow:hidden;">
             <div style="padding:10px 16px;background:#1e3a5f;">
-                <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">财务亮点</span>
+                <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">{t("er_sec_highlights")}</span>
             </div>
             <div style="padding:12px 16px;">
                 {highlights}
@@ -209,7 +219,7 @@ def build_html(
 
         <div style="border:1px solid #e2e8f0;border-radius:6px;margin:16px 0;overflow:hidden;">
             <div style="padding:10px 16px;background:#1e3a5f;">
-                <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">管理层核心观点</span>
+                <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">{t("er_sec_talking")}</span>
             </div>
             <div style="padding:8px 16px;">
                 {points}
@@ -218,7 +228,7 @@ def build_html(
 
         <div style="border:1px solid #e2e8f0;border-radius:6px;margin:16px 0;overflow:hidden;">
             <div style="padding:10px 16px;background:#1e3a5f;">
-                <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">前景解读</span>
+                <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">{t("er_sec_outlook")}</span>
             </div>
             <div style="padding:12px 16px;">
                 {outlook}
@@ -229,7 +239,7 @@ def build_html(
 
     <div style="background:#f1f5f9;padding:12px 24px;text-align:center;color:#9ca3af;
                 font-size:11px;border-radius:0 0 8px 8px;">
-        数据来源：SEC EDGAR · yfinance · Not financial advice.
+        {t("er_footer")}
     </div>
 
 </body>
@@ -242,8 +252,8 @@ def send(
     financials: Optional[Dict],
     watch_points: Optional[List[str]] = None,
 ) -> None:
-    today   = date.today().strftime("%b %d, %Y")
-    subject = f"财报速递 · {ticker} · {today}"
+    today   = fmt_date_short(date.today())
+    subject = f'{t("er_title", ticker=ticker)} · {today}'
     html    = build_html(ticker, analysis, financials, watch_points)
 
     outer = MIMEMultipart("related")

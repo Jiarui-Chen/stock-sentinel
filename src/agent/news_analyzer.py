@@ -4,26 +4,31 @@ from typing import Any, Dict, List
 import anthropic
 
 from src.config import ANTHROPIC_API_KEY, CLAUDE_MODEL
+from src.i18n import prompt_language_directive
 
 _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 _BATCH_SIZE = 1  # tickers per API call
 
 _SYSTEM_PROMPT = """\
-You are a stock news summarizer. For each ticker, you are given a list of article titles and summaries fetched from Yahoo Finance.
+You are a stock news summarizer serving a long-term investor with a 6-18 month holding horizon.
+
+Judge everything by whether it changes the company's business trajectory over the next 6-18 months —
+not by whether it moves the stock this week.
 
 Your job:
 1. Read the articles for each ticker and extract any content that directly mentions or concerns that specific company
-2. Summarize what you find in 1-2 sentences in Chinese
+2. Summarize what you find in 1-2 sentences
 3. Set sentiment based on what is reported: "bullish", "bearish", "neutral", or "mixed"
-4. Write a 1-sentence implication in Chinese, if the content supports one
-5. Score importance 1-10: how much this news should matter to an investor holding or watching this stock, based on its investment implication (e.g. earnings surprises, guidance changes, major partnerships, regulatory action, executive changes score high; routine analyst notes, minor price commentary, or recycled old news score low). Judge each ticker independently — do not try to rank tickers against each other.
+4. Write a 1-sentence implication, if the content supports one
+5. Score importance 1-10: how much this news should matter to an investor holding this stock for the next 6-18 months. Score high for anything that changes the multi-quarter trajectory — guidance changes, structural demand shifts, major partnerships or contracts, regulatory action, capital allocation, executive changes, competitive-position changes. Score low for anything that only affects the next few sessions — routine analyst price-target tweaks, daily price commentary, short-term momentum pieces, or recycled old news. Judge each ticker independently — do not try to rank tickers against each other.
 
 Rules:
 - ONLY use facts explicitly stated in the provided titles and summaries — never infer or fabricate
 - Focus only on what the articles say about THAT specific company; ignore content about other companies
 - If none of the articles contain anything directly about that company, omit that ticker from your response
-- If there is too little information to draw a meaningful implication, omit the implication field\
+- If there is too little information to draw a meaningful implication, omit the implication field
+- The implication must address the 6-18 month outlook (demand, margins, competitive position, execution risk), not the near-term stock reaction\
 """
 
 _TOOL = {
@@ -55,7 +60,8 @@ def _analyze_batch(batch: Dict[str, List[Dict[str, str]]]) -> Dict[str, Any]:
         max_tokens=4096,
         tools=[_TOOL],
         tool_choice={"type": "tool", "name": "report_news_analysis"},
-        system=[{"type": "text", "text": _SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+        system=[{"type": "text", "text": _SYSTEM_PROMPT + prompt_language_directive(),
+                 "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": f"Analyze these news articles:\n\n{payload}"}],
     )
     raw = next(b for b in response.content if b.type == "tool_use").input

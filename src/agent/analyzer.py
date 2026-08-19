@@ -2,11 +2,18 @@ import json
 import anthropic
 from typing import List, Dict, Any, Tuple
 from src.config import ANTHROPIC_API_KEY, CLAUDE_MODEL
+from src.i18n import prompt_language_directive
 
 _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 _SYSTEM_PROMPT = """\
 You are a concise stock technical analysis assistant focused on RSI signals and RSI divergence.
+
+You are writing for a long-term investor with a 6-18 month holding horizon, not a trader.
+Treat RSI and divergence as entry/exit *timing* context for positions that will be held for
+quarters, never as short-term trade signals. Weekly readings therefore matter more than daily
+ones: a weekly extreme is a meaningful positioning cue, while a daily extreme is usually noise
+that resolves long before the thesis plays out. Never suggest acting on a single day's reading.
 
 Given a watchlist of stocks with their RSI values, alert classifications, and divergence signals, you will:
 1. Write a single-sentence insight for each stock that has any alert or divergence signal
@@ -27,7 +34,9 @@ RSI Divergence types:
 - null: no RSI divergence detected
 
 A stock with no alerts AND no RSI divergence needs no commentary.
-Be factual and brief. Do not give financial advice.\
+Be factual and brief. Frame each insight in terms of what it means for a multi-quarter position
+(e.g. a better/worse place to add or reduce), not what the stock might do this week.
+Do not give financial advice.\
 """
 
 _TOOL = {
@@ -80,7 +89,7 @@ def enrich(results: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], str]:
             system=[
                 {
                     "type": "text",
-                    "text": _SYSTEM_PROMPT,
+                    "text": _SYSTEM_PROMPT + prompt_language_directive(),
                     "cache_control": {"type": "ephemeral"},
                 }
             ],
