@@ -1,6 +1,9 @@
 """
 Detects option contracts with abnormally high volume / open-interest ratios.
 
+Only contracts expiring at least MIN_DAYS_TO_EXP out are considered — the report is
+written for a 6-18 month investment horizon, so weekly/near-dated flow is noise.
+
 OI STALENESS NOTE: yfinance openInterest is settled at prior-day close, not intraday.
 Each anomaly dict carries `oi` as its own field so a future caller can substitute a
 stored prior-day snapshot without changing the schema.
@@ -19,7 +22,8 @@ from src.data.yf_session import make_ticker
 MIN_OI          = 20    # skip contracts with OI below this — avoids spurious ratios
 MIN_VOLUME      = 50    # skip trickle trades
 RATIO_THRESHOLD = 1.5   # volume / OI must exceed this to flag as anomalous
-MAX_EXPIRATIONS = 6     # upcoming expiry dates to scan per ticker
+MIN_DAYS_TO_EXP = 28    # ignore anything expiring sooner — weeklies say nothing about a 6-18mo thesis
+MAX_EXPIRATIONS = 6     # qualifying expiry dates to scan per ticker (first N at/after MIN_DAYS_TO_EXP)
 ATM_BAND        = 0.02  # ±2% of spot counts as ATM
 MAX_WORKERS     = 6     # concurrent ticker scans
 MAX_DISPLAY     = 5     # top contracts shown per ticker in reports
@@ -68,6 +72,7 @@ def _scan_chain(df, opt_type: str, exp_str: str, spot: float, days_to_exp: int, 
         volume = int(_safe_float(getattr(row, "volume",        None)))
         oi     = int(_safe_float(getattr(row, "openInterest",  None)))
         iv     = _safe_float(getattr(row, "impliedVolatility", None))
+        last   = _safe_float(getattr(row, "lastPrice",         None))
 
         if oi < MIN_OI or volume < MIN_VOLUME:
             continue
@@ -87,6 +92,10 @@ def _scan_chain(df, opt_type: str, exp_str: str, spot: float, days_to_exp: int, 
             "volume":      volume,
             "oi":          oi,       # prior-day settlement value from yfinance
             "iv":          round(iv, 4) if iv else None,
+            "last":        round(last, 2) if last else None,
+            # Rough traded notional; lastPrice is a stale single print, so treat
+            # this as an order-of-magnitude size hint, not an exact dollar figure.
+            "premium":     int(volume * last * 100) if last else None,
         })
     return anomalies
 
@@ -109,13 +118,21 @@ def _scan_ticker(ticker: str, prices: Optional[Dict[str, float]]) -> List[Dict]:
         return []
     spot = float(spot)
 
-    anomalies: List[Dict] = []
-    for exp_str in exp_dates[:MAX_EXPIRATIONS]:
+    # Long-horizon filter: skip every expiry inside MIN_DAYS_TO_EXP, then take the
+    # first MAX_EXPIRATIONS that qualify (yfinance returns expirations ascending).
+    dated = []
+    for exp_str in exp_dates:
         try:
-            exp_date    = datetime.strptime(exp_str, "%Y-%m-%d").date()
-            days_to_exp = (exp_date - today).days
-            if days_to_exp < 0:
-                continue
+            days_to_exp = (datetime.strptime(exp_str, "%Y-%m-%d").date() - today).days
+        except ValueError:
+            continue
+        if days_to_exp >= MIN_DAYS_TO_EXP:
+            dated.append((exp_str, days_to_exp))
+    dated = dated[:MAX_EXPIRATIONS]
+
+    anomalies: List[Dict] = []
+    for exp_str, days_to_exp in dated:
+        try:
             chain = t.option_chain(exp_str)
             for opt_type, df in (("call", chain.calls), ("put", chain.puts)):
                 anomalies.extend(_scan_chain(df, opt_type, exp_str, spot, days_to_exp, ticker))

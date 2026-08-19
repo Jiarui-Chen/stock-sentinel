@@ -108,12 +108,18 @@ EMAIL_SENDER=your_gmail@gmail.com
 EMAIL_PASSWORD=your_gmail_app_password
 EMAIL_RECIPIENT=recipient@gmail.com
 REPORT_TIME=16:30
+REPORT_LANGUAGE=zh
 ```
 
 Multiple recipients are supported — use a comma-separated list:
 ```
 EMAIL_RECIPIENT=alice@gmail.com,bob@gmail.com
 ```
+
+`REPORT_LANGUAGE` sets the language of **every** email — section headers, labels, dates, subject
+lines, and the analysis Claude writes. Accepts `zh` (简体中文, default) or `en`; anything else falls
+back to `zh` with a warning. Ticker symbols, company names, and standard finance abbreviations
+(RSI, MACD, EPS, QoQ, YoY, P/E, CALL, PUT, ITM, ATM, OTM, LEAPS) stay in English in both modes.
 
 > **Gmail App Password:** regular Gmail passwords won't work. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) to generate one (requires 2-Step Verification to be enabled).
 

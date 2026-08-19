@@ -4,27 +4,52 @@ from typing import Any, Dict, List, Optional
 import anthropic
 
 from src.config import ANTHROPIC_API_KEY, CLAUDE_MODEL_SMART
+from src.i18n import prompt_language_directive
 
 _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 _SYSTEM_PROMPT = """\
-You are Sentinel, an autonomous stock analysis agent. For each stock in the watchlist you are given:
+You are Sentinel, an autonomous stock analysis agent working for a long-term investor with a
+6-18 month holding horizon. You are NOT a day trader and NOT a swing trader. Every call you make
+is a position-sizing decision on a stock the investor expects to hold for several quarters:
+ACCUMULATE means "add to / start a position and hold through the next few quarters",
+TRIM means "reduce or exit — the 6-18 month thesis has deteriorated or the valuation has run ahead".
+
+For each stock in the watchlist you are given:
 - Technical indicators: daily and weekly RSI with signal levels, RSI divergence, MACD histogram sign and momentum
 - Recent news sentiment and summary
 - Key fundamentals: P/E ratios, revenue/earnings growth, profit margin, analyst price target vs current price, position vs 52-week range
-- Option flow anomalies (when present): contracts where volume/OI ratio exceeds 1.5×, suggesting unusual positioning by informed traders
+- Option flow anomalies (when present): contracts expiring at least 4 weeks out where volume/OI exceeds 1.5×, suggesting positioning by informed traders
 
-Your task: identify the TOP 3 stocks to BUY and TOP 3 stocks to SELL from this watchlist.
+Your task: identify the TOP 3 stocks to ACCUMULATE (return them in the buy_1..buy_3 slots) and the
+TOP 3 stocks to TRIM (return them in the sell_1..sell_3 slots).
+
+How to weigh the evidence:
+- Fundamentals and business trajectory decide WHICH stocks belong on each list — growth durability,
+  margin direction, valuation vs. growth, competitive position, and upside to analyst targets.
+- Technicals and option flow only refine the TIMING of adding or reducing. They are never the
+  primary reason for a call on their own.
+- Weekly indicators outweigh daily ones; a single day's RSI or MACD print is noise over a 6-18 month hold.
+- Option flow is a secondary signal — sustained call positioning in dated contracts suggests
+  informed bullish conviction, put positioning suggests hedging or a bearish view.
+- News matters only when it changes the multi-quarter outlook, not when it just moves the stock today.
 
 Guidelines:
-- BUY candidates: oversold RSI, bullish divergence, positive and rising MACD, strong growth, news catalyst, significant upside to analyst target, unusual call buying
-- SELL candidates: overbought RSI, bearish divergence, negative and falling MACD, weak fundamentals, negative news, unusual put buying or call selling
-- Option flow is a secondary signal — high call volume/OI suggests bullish positioning, high put volume/OI suggests bearish bets or hedging
-- Prioritize stocks where multiple signals align (technical + fundamental + news + option flow)
-- Be specific — cite actual RSI values, MACD direction, growth rates, news, or option flow ratios when they drive your call
-- Write each reason in 2-3 concise sentences in Chinese (简体中文)
-- Always return exactly 3 buys and 3 sells — if strong signals are limited, rank the relatively better options and note the weaker conviction in the reason\
+- ACCUMULATE candidates: durable revenue/earnings growth, improving or defensible margins, reasonable
+  valuation against that growth, meaningful upside to analyst targets, a structural news catalyst —
+  ideally while weekly RSI is oversold or bullish divergence offers a better entry.
+- TRIM candidates: decelerating growth, deteriorating margins, stretched valuation, structural
+  competitive or regulatory pressure, or a broken thesis — often confirmed by an overbought weekly
+  RSI, bearish divergence, or fading weekly MACD momentum.
+- Prioritize stocks where multiple signals align (fundamental + news + technical + option flow).
+- Be specific — cite actual growth rates, margins, P/E, target upside, RSI values, MACD direction,
+  news, or option flow ratios when they drive your call.
+- Explicitly frame each reason around the 6-18 month outlook, not the next few sessions.
+- Write each reason in 2-3 concise sentences.
+- Always return exactly 3 accumulate and 3 trim picks — if strong signals are limited, rank the
+  relatively better options and note the weaker conviction in the reason.\
 """
+
 
 def _pick_schema() -> dict:
     obj = {
@@ -40,7 +65,7 @@ def _pick_schema() -> dict:
 
 _TOOL = {
     "name": "report_sentinel_picks",
-    "description": "Report exactly 3 buy picks and exactly 3 sell picks. All six slots are required.",
+    "description": "Report exactly 3 accumulate picks (buy_1..buy_3) and exactly 3 trim picks (sell_1..sell_3). All six slots are required.",
     "input_schema": {
         "type": "object",
         "properties": {
@@ -57,7 +82,7 @@ _TOOL = {
 
 
 def analyze(enriched: List[Dict], fundamentals: Dict[str, Dict], option_flow: Optional[Dict] = None) -> Dict[str, Any]:
-    """Returns {buy: [{ticker, reason}], sell: [{ticker, reason}]}."""
+    """Returns {buy: [{ticker, reason}], sell: [{ticker, reason}]} — accumulate / trim calls."""
     payload = []
     for r in enriched:
         t = r["ticker"]
@@ -96,7 +121,8 @@ def analyze(enriched: List[Dict], fundamentals: Dict[str, Dict], option_flow: Op
             max_tokens=2048,
             tools=[_TOOL],
             tool_choice={"type": "tool", "name": "report_sentinel_picks"},
-            system=[{"type": "text", "text": _SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+            system=[{"type": "text", "text": _SYSTEM_PROMPT + prompt_language_directive(),
+                    "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": f"Analyze this watchlist:\n\n{json.dumps(payload, indent=2)}"}],
         )
 

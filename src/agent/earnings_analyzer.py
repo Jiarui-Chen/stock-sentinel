@@ -2,7 +2,7 @@
 Analyzes an earnings call transcript using Claude Sonnet.
 
 Extracts: key financial metrics summary, executive talking points, and
-forward-looking interpretation — all written in Chinese (简体中文).
+forward-looking interpretation — written in the language set by REPORT_LANGUAGE.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 import anthropic
 
 from src.config import ANTHROPIC_API_KEY, CLAUDE_MODEL_SMART
+from src.i18n import prompt_language_directive
 
 _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -54,24 +55,41 @@ def _normalize_points(value: Any) -> List[str]:
     return [str(p).strip() for p in value if p is not None and str(p).strip()]
 
 _SYSTEM_PROMPT = """\
-你是一名专业的股票分析师，专注于解读上市公司的财报信息。
+You are a professional equity analyst who interprets quarterly earnings disclosures.
 
-你将收到：
-1. 该公司最新季度的关键财务指标（含环比QoQ和同比YoY变化）
-2. SEC EDGAR 8-K 文件内容（可能是完整的财报电话会议记录，也可能是财报新闻稿/业绩公告）
-3. （如有）财报前提出的5个关注要点
+Your reader is a long-term investor with a 6-18 month holding horizon who does not trade
+short term. Your interpretation must therefore answer "how does this report change the
+company's operating trajectory over the next 6-18 months?", NOT "where does the stock go
+after the print?". Focus on structural changes — durability of revenue growth, margin
+direction, competitive position, capex and cash flow — and ignore noise that only affects
+the earnings-day reaction.
 
-你的任务是用简体中文输出以下内容：
+You are given:
+1. The company's key financial metrics for the latest quarter (with QoQ and YoY changes)
+2. SEC EDGAR 8-K content (either a full earnings call transcript, or an earnings press release)
+3. (If available) the 5 watch points raised before the report
 
-**财务亮点**：概括本季度最重要的财务表现（营收、毛利率、运营利润率、EPS），重点指出哪些指标超预期/低于预期，以及环比/同比的关键变化。2-4句话。
+Produce the following:
 
-**管理层核心观点**：提炼管理层（CEO/CFO）在文件中提到的3-5个最重要的战略/业务观点，每条用一句话概括。只关注有实质内容的观点，跳过套话和客套。
+**Financial highlights** (financial_highlights): Summarize the quarter's most important results
+(revenue, gross margin, operating margin, EPS), calling out which metrics beat or missed and the
+key QoQ/YoY moves. 2-4 sentences.
 
-**前景解读**：基于管理层的表态和财务数据，分析这对公司未来2-4个季度的业务走向意味着什么。重点关注：收入增长驱动力、利润率趋势、潜在风险。3-5句话。
+**Management takeaways** (key_talking_points): Extract the 3-5 most important strategic or
+operational points management (CEO/CFO) made. One sentence each. Keep only points with real
+substance — skip boilerplate and pleasantries.
 
-**财报前瞻回顾**（仅当提供了关注要点时）：按原顺序逐条回答每个关注要点，每条一句话，说明本次财报如何回应该问题——是否兑现、超预期还是令人失望。
+**Outlook** (outlook_interpretation): Based on management's commentary and the financials, analyze
+what this means for the business over the next 6-18 months (roughly 2-6 quarters). Focus on whether
+the growth drivers are durable, the margin trend, shifts in competitive position, and risks that
+could break the long-term thesis. State explicitly whether this quarter's changes look structural
+or one-off. 3-5 sentences.
 
-输出要简洁、具体、有洞察力。避免泛泛而谈。\
+**Pre-earnings review** (watch_point_responses, only when watch points are supplied): Answer each
+watch point in the original order, one sentence each, explaining how this report addressed it —
+delivered, beat expectations, or disappointed.
+
+Be concise, specific and insightful. Avoid generalities, and never predict short-term price moves.\
 """
 
 
@@ -79,16 +97,16 @@ def _build_tool(with_watch_points: bool) -> dict:
     props: dict = {
         "financial_highlights": {
             "type": "string",
-            "description": "财务亮点 — 2-4 sentences in Chinese",
+            "description": "Financial highlights — 2-4 sentences",
         },
         "key_talking_points": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "管理层核心观点 — list of 3-5 concise points in Chinese",
+            "description": "Management takeaways — list of 3-5 concise points",
         },
         "outlook_interpretation": {
             "type": "string",
-            "description": "前景解读 — 3-5 sentences in Chinese",
+            "description": "Outlook — 3-5 sentences",
         },
     }
     required = ["financial_highlights", "key_talking_points", "outlook_interpretation"]
@@ -97,13 +115,13 @@ def _build_tool(with_watch_points: bool) -> dict:
         props["watch_point_responses"] = {
             "type": "array",
             "items": {"type": "string"},
-            "description": "财报前瞻回顾 — one sentence per watch point in the same order, in Chinese",
+            "description": "Pre-earnings review — one sentence per watch point, in the same order",
         }
         required.append("watch_point_responses")
 
     return {
         "name": "report_earnings_analysis",
-        "description": "Report the structured earnings analysis in Chinese.",
+        "description": "Report the structured earnings analysis.",
         "input_schema": {"type": "object", "properties": props, "required": required},
     }
 
@@ -123,21 +141,22 @@ def analyze(
     and optionally watch_point_responses when watch_points are supplied.
     Returns None on failure.
     """
-    fin_summary = _format_financials(financials) if financials else "财务数据暂不可用。"
+    fin_summary = _format_financials(financials) if financials else "Financial data unavailable."
     truncated   = transcript[:_MAX_TRANSCRIPT_CHARS]
     if len(transcript) > _MAX_TRANSCRIPT_CHARS:
-        truncated += "\n\n[记录已截断]"
+        truncated += "\n\n[transcript truncated]"
 
     user_content = (
-        f"公司：{ticker}\n\n"
-        f"## 关键财务指标\n{fin_summary}\n\n"
-        f"## SEC EDGAR 8-K 财报文件\n{truncated}"
+        f"Company: {ticker}\n\n"
+        f"## Key financial metrics\n{fin_summary}\n\n"
+        f"## SEC EDGAR 8-K filing\n{truncated}"
     )
 
     if watch_points:
         numbered = "\n".join(f"{i+1}. {p}" for i, p in enumerate(watch_points))
         user_content += (
-            f"\n\n## 财报前关注要点（请在 watch_point_responses 中按序逐条回答）\n{numbered}"
+            "\n\n## Pre-earnings watch points "
+            f"(answer each in order in watch_point_responses)\n{numbered}"
         )
 
     tool = _build_tool(bool(watch_points))
@@ -148,7 +167,8 @@ def analyze(
             max_tokens=2048,
             tools=[tool],
             tool_choice={"type": "tool", "name": "report_earnings_analysis"},
-            system=[{"type": "text", "text": _SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+            system=[{"type": "text", "text": _SYSTEM_PROMPT + prompt_language_directive(),
+                     "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": user_content}],
         )
         raw = next(b for b in response.content if b.type == "tool_use").input
@@ -193,29 +213,29 @@ def _fmt_val(v: Optional[float], unit: str = "") -> str:
 
 
 def _format_financials(f: Dict) -> str:
-    lines = [f"报告期：{f.get('period', 'N/A')}"]
+    lines = [f"Period: {f.get('period', 'N/A')}"]
     lines.append(
-        f"营收：{_fmt_val(f.get('revenue'))}  "
+        f"Revenue: {_fmt_val(f.get('revenue'))}  "
         f"QoQ {_fmt_pct(f.get('revenue_qoq'))}  "
         f"YoY {_fmt_pct(f.get('revenue_yoy'))}"
     )
     lines.append(
-        f"毛利率：{_fmt_pct(f.get('gross_margin'))}  "
+        f"Gross margin: {_fmt_pct(f.get('gross_margin'))}  "
         f"QoQ {_fmt_pp(f.get('gross_margin_qoq'))}  "
         f"YoY {_fmt_pp(f.get('gross_margin_yoy'))}"
     )
     lines.append(
-        f"运营利润率：{_fmt_pct(f.get('op_margin'))}  "
+        f"Operating margin: {_fmt_pct(f.get('op_margin'))}  "
         f"QoQ {_fmt_pp(f.get('op_margin_qoq'))}  "
         f"YoY {_fmt_pp(f.get('op_margin_yoy'))}"
     )
     lines.append(
-        f"净利润：{_fmt_val(f.get('net_income'))}  "
+        f"Net income: {_fmt_val(f.get('net_income'))}  "
         f"QoQ {_fmt_pct(f.get('net_income_qoq'))}  "
         f"YoY {_fmt_pct(f.get('net_income_yoy'))}"
     )
     lines.append(
-        f"EPS：{_fmt_val(f.get('eps'))}  "
+        f"EPS: {_fmt_val(f.get('eps'))}  "
         f"QoQ {_fmt_pct(f.get('eps_qoq'))}  "
         f"YoY {_fmt_pct(f.get('eps_yoy'))}"
     )

@@ -10,7 +10,10 @@ from datetime import datetime, date, timedelta
 
 from src.data import fetcher, news_fetcher, fundamentals_fetcher, earnings_fetcher, pre_earnings_fetcher
 from src.indicators import rsi, rsi_divergence, macd, option_flow
-from src.agent import analyzer, news_analyzer, sentinel_analyzer, earnings_analyzer, pre_earnings_analyzer
+from src.agent import (
+    analyzer, news_analyzer, sentinel_analyzer, earnings_analyzer,
+    pre_earnings_analyzer, option_flow_analyzer,
+)
 from src.report import email_reporter, earnings_reporter, pre_earnings_reporter
 from src.config import REPORT_TIME, EARNINGS_EVENING_TIME, EARNINGS_MORNING_TIME
 
@@ -163,9 +166,13 @@ def run(force: bool = False) -> None:
 
     print("  Scanning option flow...")
     option_flow_findings = option_flow.scan_all(active_tickers)
+    option_flow_summary = []
     if option_flow_findings:
         print(f"  Option flow anomalies: {list(option_flow_findings.keys())}")
         option_flow.print_report(option_flow_findings)
+        print("  Summarizing top option flows...")
+        option_flow_summary = option_flow_analyzer.analyze(option_flow_findings)
+        print(f"  Option flow highlights: {[f['ticker'] for f in option_flow_summary] or 'none'}")
 
     print("  Running Sentinel analysis...")
     analyst_picks = sentinel_analyzer.analyze(enriched, fundamentals, option_flow_findings)
@@ -173,7 +180,7 @@ def run(force: bool = False) -> None:
           f"Sell: {[p['ticker'] for p in analyst_picks.get('sell', [])]}")
 
     print("  Sending report...")
-    email_reporter.send(enriched, analyst_picks, top_news)
+    email_reporter.send(enriched, analyst_picks, top_news, option_flow_summary)
     print(f"[{now:%Y-%m-%d %H:%M}] Done.")
 
 
