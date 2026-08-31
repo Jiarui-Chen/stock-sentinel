@@ -2,10 +2,12 @@ import json
 import os
 import resource
 import socket
+import subprocess
 import sys
 import time
 import traceback
 import schedule
+from contextlib import contextmanager
 from datetime import datetime, date, timedelta
 
 from src.data import fetcher, news_fetcher, fundamentals_fetcher, earnings_fetcher, pre_earnings_fetcher
@@ -181,7 +183,10 @@ def run(force: bool = False) -> None:
 
     print("  Sending report...")
     email_reporter.send(enriched, analyst_picks, top_news, option_flow_summary)
-    print(f"[{now:%Y-%m-%d %H:%M}] Done.")
+    # Fresh timestamp, not `now` — the send time is what you compare against
+    # REPORT_TIME when the email lands late, and reprinting the start time hides
+    # how long the run actually took.
+    print(f"[{datetime.now():%Y-%m-%d %H:%M}] Done (started {now:%H:%M}).")
 
 
 def _send_earnings_for(tickers: list, earnings_dates: dict = None) -> None:
@@ -310,6 +315,42 @@ def run_earnings(label: str = "", force_tickers: list = None) -> None:
         _retry_earnings_for(retry, earnings_dates)
 
 
+@contextmanager
+def _no_idle_sleep(name: str):
+    """
+    Hold a macOS idle-sleep assertion for the duration of a scheduled job.
+
+    Without this the report time drifts badly on a laptop. The scheduler lives in
+    an in-process `while True: run_pending(); sleep(30)` loop, which is frozen
+    while the system sleeps — so a job due at 16:30 does not fire at 16:30, it
+    fires whenever the machine next wakes for long enough to schedule us. On
+    battery (`pmset sleep 1` — idle-sleep after one minute) that turned a 16:30
+    report into anything from 16:30 to 17:14.
+
+    A scheduled wake (`pmset repeat wakeorpoweron`, see README) gets the machine
+    up shortly before REPORT_TIME; this assertion is the other half — it stops
+    the machine idle-sleeping again in the gap before the job fires, or midway
+    through a run that takes several minutes of network and API calls.
+
+    Best-effort: if caffeinate is missing or fails we log and run anyway, since a
+    late report beats no report.
+    """
+    proc = None
+    try:
+        proc = subprocess.Popen(["/usr/bin/caffeinate", "-i"])
+    except OSError as e:
+        print(f"[warn] '{name}': could not hold idle-sleep assertion: {e}")
+    try:
+        yield
+    finally:
+        if proc is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+
 def _job(name: str, fn, *args, **kwargs) -> None:
     """
     Run a scheduled callable so that NO exception ever escapes back into
@@ -324,7 +365,8 @@ def _job(name: str, fn, *args, **kwargs) -> None:
     """
     before = _fd_count()
     try:
-        fn(*args, **kwargs)
+        with _no_idle_sleep(name):
+            fn(*args, **kwargs)
     except Exception as e:
         print(f"[ERROR] Scheduled job '{name}' failed: {e}")
         traceback.print_exc()
