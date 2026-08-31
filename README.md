@@ -218,6 +218,22 @@ tail -f <prod-dir>/logs/sentinel.error.log
 
 Deploy updates with `git pull` inside the production directory. A launchd restart is only needed if the plist itself changed.
 
+**If you deploy on a laptop, schedule a wake — otherwise the report time drifts.**
+
+The scheduler is an in-process loop that is frozen while macOS sleeps, so a job due at `REPORT_TIME` does not fire at `REPORT_TIME` — it fires whenever the machine next wakes for long enough to run us. On battery this is severe: with the default `pmset sleep 1` (idle-sleep after one minute) a 16:30 report was observed landing anywhere from 16:30 to 17:14, tracking the machine's maintenance wakes rather than the clock.
+
+Register a wake a couple of minutes before `REPORT_TIME`:
+
+```bash
+# adjust the time to REPORT_TIME minus ~2 min; MTWRFSU = every day
+sudo pmset repeat wakeorpoweron MTWRFSU 16:28:00
+pmset -g sched                           # verify the repeating event is listed
+```
+
+`main.py` holds a `caffeinate -i` assertion for the duration of each scheduled job, so once awake the machine will not idle-sleep in the gap before the job fires or midway through a run.
+
+Note that `pmset repeat` stores only **one** repeating wake, so it can cover `REPORT_TIME` or an earnings check, not all three. The earnings jobs (`EARNINGS_EVENING_TIME`, `EARNINGS_MORNING_TIME`) remain subject to the same drift on a sleeping laptop. A machine that never sleeps — desktop, always-on host, or `sudo pmset -b sleep 0` — avoids the problem entirely.
+
 ## Models and cost
 
 | Agent | Model | Calls per daily run |
