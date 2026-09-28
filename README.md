@@ -18,13 +18,19 @@ All three follow the language set by `REPORT_LANGUAGE`.
 
 Sections appear in this order:
 
-**1. Sentinel Picks** — Claude Sonnet reads the whole watchlist and names **3 stocks to accumulate (加仓 ▲)** and **3 to trim (减仓 ▼)**, each with a 2–3 sentence rationale. These are position-sizing calls on a multi-quarter hold, not trade signals: *accumulate* means start or add to a position, *trim* means the 6–18 month thesis has weakened or valuation has run ahead.
+**1. Market Participation** — Market breadth, as the share of S&P 500 constituents trading above their moving average over three horizons: **short term (20-day)**, **mid term (50-day)**, and **long term (100-day)**. It leads the report because it frames everything below it — the same oversold RSI reading means different things in a market where 70% of names are above their 20-day average and one where 30% are.
 
-**2. Upcoming Earnings** — Any watchlist ticker reporting within 14 days, with a countdown and before/after-market timing.
+🟢 ≥70% broad participation · 🟠 30–70% mixed · 🔴 <30% narrow
 
-**3. Top News** — The five most important stories across the watchlist, ranked by how much they change a company's 6–18 month trajectory. Guidance changes, structural demand shifts, and regulatory action score high; analyst price-target tweaks and daily price commentary score low.
+Simple moving averages, computed from the latest close. The constituent list comes from Wikipedia and is cached in `logs/`; tickers without enough history for a given window leave that window's denominator rather than counting as below it, so an index addition cannot drag the reading down.
 
-**4. Scorecard** — One row per ticker, one colored dot per signal:
+**2. Sentinel Picks** — Claude Sonnet reads the whole watchlist and names **3 stocks to accumulate (加仓 ▲)** and **3 to trim (减仓 ▼)**, each with a 2–3 sentence rationale. These are position-sizing calls on a multi-quarter hold, not trade signals: *accumulate* means start or add to a position, *trim* means the 6–18 month thesis has weakened or valuation has run ahead.
+
+**3. Upcoming Earnings** — Any watchlist ticker reporting within 14 days, with a countdown and before/after-market timing.
+
+**4. Top News** — The five most important stories across the watchlist, ranked by how much they change a company's 6–18 month trajectory. Guidance changes, structural demand shifts, and regulatory action score high; analyst price-target tweaks and daily price commentary score low.
+
+**5. Scorecard** — One row per ticker, one colored dot per signal:
 
 | Column | Meaning |
 |---|---|
@@ -39,7 +45,7 @@ Sections appear in this order:
 
 Rows sort by signal strength — extreme RSI first, then divergences, then MACD crossovers. Weekly readings are weighted more heavily than daily ones throughout, since a single day's print is noise over a multi-quarter hold.
 
-**5. Option Flow** — The five most notable option flows across the *entire* watchlist, grouped one bullet per ticker. Claude picks them from every contract flagged as anomalous, weighing traded premium, days to expiry, and strike placement rather than just the raw ratio. **Only contracts expiring at least 4 weeks out are considered** — weekly options say nothing about a 6–18 month thesis.
+**6. Option Flow** — The five most notable option flows across the *entire* watchlist, grouped one bullet per ticker. Claude picks them from every contract flagged as anomalous, weighing traded premium, days to expiry, and strike placement rather than just the raw ratio. **Only contracts expiring at least 4 weeks out are considered** — weekly options say nothing about a 6–18 month thesis.
 
 ## Signal reference
 
@@ -85,12 +91,16 @@ stock-sentinel/
 ├── .env.example                     # Environment variable template
 ├── com.stocksentinel.plist          # macOS launchd service config
 ├── tests/
-│   └── test_fd_leak.py              # Regression guard for the fd leak
+│   ├── test_fd_leak.py              # Regression guard for the fd leak
+│   ├── test_degraded_report.py      # Guard against silently-degraded reports
+│   └── test_participation.py        # Breadth arithmetic + rendering
 └── src/
     ├── config.py                    # All settings and env vars
+    ├── degradation.py               # Per-run record of failed stages
     ├── i18n.py                      # Every user-visible string, both languages
     ├── data/
     │   ├── fetcher.py               # Daily/weekly OHLCV via yfinance
+    │   ├── sp500_fetcher.py         # S&P 500 constituents (Wikipedia + cache)
     │   ├── yf_session.py            # Shared HTTP session (prevents fd leaks)
     │   ├── news_fetcher.py          # 48h news headlines
     │   ├── fundamentals_fetcher.py  # P/E, growth, margin, analyst targets, earnings dates
@@ -100,7 +110,8 @@ stock-sentinel/
     │   ├── rsi.py                   # RSI calculation and classification
     │   ├── rsi_divergence.py        # Swing-point divergence detection
     │   ├── macd.py                  # MACD line, signal, histogram
-    │   └── option_flow.py           # Abnormal volume/OI scanner (4+ weeks out only)
+    │   ├── option_flow.py           # Abnormal volume/OI scanner (4+ weeks out only)
+    │   └── participation.py         # Market breadth vs 20/50/100-day SMAs
     ├── agent/
     │   ├── analyzer.py              # Haiku — per-ticker RSI commentary
     │   ├── news_analyzer.py         # Haiku — news summary + importance scoring
@@ -189,6 +200,12 @@ Run the regression tests:
 ```bash
 python3 tests/test_fd_leak.py
 python3 tests/test_degraded_report.py
+python3 tests/test_participation.py
+```
+
+Print market participation standalone, without sending anything:
+```bash
+python3 -m src.indicators.participation
 ```
 
 On startup the scheduler waits up to 120 seconds for network reachability before its first run, and raises its open-file limit to the hard ceiling as defense against fd exhaustion.
