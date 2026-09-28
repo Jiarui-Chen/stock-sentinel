@@ -21,20 +21,29 @@ from __future__ import annotations
 # Section keys map to i18n section headers, so the banner names a section with
 # exactly the label the reader sees on it elsewhere in the email.
 SECTION_KEYS = {
-    "commentary": "sec_commentary",
-    "news":       "sec_news",
-    "picks":      "sec_picks",
-    "flow":       "sec_flow",
+    "participation": "sec_participation",
+    "commentary":    "sec_commentary",
+    "news":          "sec_news",
+    "picks":         "sec_picks",
+    "flow":          "sec_flow",
 }
 
 _REASON_MARKERS = (
+    # Anthropic-specific, and each needs a different response from the reader.
     ("credit balance is too low", "reason_credit"),
     ("invalid x-api-key",         "reason_auth"),
     ("authentication_error",      "reason_auth"),
     ("rate_limit",                "reason_rate_limit"),
+    # Transport-level, can affect any stage.
     ("connection error",          "reason_network"),
     ("timed out",                 "reason_network"),
     ("timeout",                   "reason_network"),
+    # Upstream market data — participation's own failure modes (Wikipedia scrape,
+    # empty yfinance response, too little history for the 100-day average).
+    ("constituent list",          "reason_data"),
+    ("no price data",             "reason_data"),
+    ("trading days",              "reason_data"),
+    ("enough history",            "reason_data"),
 )
 
 # (section_key, reason_key) pairs, deduplicated, in first-seen order. Dedup

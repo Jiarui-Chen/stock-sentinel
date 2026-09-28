@@ -50,6 +50,19 @@ _STRINGS: dict[str, dict[str, str]] = {
         "sec_picks":          "SENTINEL PICKS",
         "sec_flow":           "OPTION FLOW",
         "sec_commentary":     "COMMENTARY",
+        "sec_participation":  "MARKET PARTICIPATION",
+
+        # ── market participation (breadth) ────────────────────────────────────
+        "part_caption":       "Share of S&P 500 constituents trading above their moving average",
+        "part_short":         "Short term",
+        "part_mid":           "Mid term",
+        "part_long":          "Long term",
+        "part_ma":            "{n}-day MA",
+        "part_footnote":      "{n} constituents · as of {asof}",
+        "part_stale":         "constituent list cached",
+        "zone_strong":        "BROAD",
+        "zone_mixed":         "MIXED",
+        "zone_weak":          "NARROW",
 
         # ── degraded-run banner ───────────────────────────────────────────────
         "degraded_title":     "Some analysis unavailable",
@@ -60,7 +73,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "reason_auth":        "Anthropic API authentication failed",
         "reason_rate_limit":  "Anthropic API rate limit exceeded",
         "reason_network":     "network error",
-        "reason_unknown":     "Anthropic API error",
+        "reason_data":        "market data unavailable",
+        "reason_unknown":     "unexpected error",
 
         "col_ticker":         "Ticker",
         "col_rsi":            "RSI",
@@ -154,6 +168,19 @@ _STRINGS: dict[str, dict[str, str]] = {
         "sec_picks":          "精选操作",
         "sec_flow":           "期权异动",
         "sec_commentary":     "点评",
+        "sec_participation":  "市场参与度",
+
+        # ── market participation (breadth) ────────────────────────────────────
+        "part_caption":       "标普 500 成分股中股价位于均线之上的比例",
+        "part_short":         "短期",
+        "part_mid":           "中期",
+        "part_long":          "长期",
+        "part_ma":            "{n} 日均线",
+        "part_footnote":      "{n} 只成分股 · 截至 {asof}",
+        "part_stale":         "成分股名单为缓存",
+        "zone_strong":        "普涨",
+        "zone_mixed":         "分化",
+        "zone_weak":          "普跌",
 
         # ── degraded-run banner ───────────────────────────────────────────────
         "degraded_title":     "部分分析不可用",
@@ -164,7 +191,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "reason_auth":        "Anthropic API 认证失败",
         "reason_rate_limit":  "Anthropic API 速率超限",
         "reason_network":     "网络错误",
-        "reason_unknown":     "Anthropic API 错误",
+        "reason_data":        "市场数据不可用",
+        "reason_unknown":     "未知错误",
 
         "col_ticker":         "股票",
         "col_rsi":            "RSI",
