@@ -49,6 +49,18 @@ _STRINGS: dict[str, dict[str, str]] = {
         "sec_news":           "TOP NEWS",
         "sec_picks":          "SENTINEL PICKS",
         "sec_flow":           "OPTION FLOW",
+        "sec_commentary":     "COMMENTARY",
+
+        # ── degraded-run banner ───────────────────────────────────────────────
+        "degraded_title":     "Some analysis unavailable",
+        "degraded_line":      "{sections} could not be generated ({reason}).",
+        "degraded_footer":    "Scorecard data is computed locally and is unaffected.",
+        "list_sep":           ", ",
+        "reason_credit":      "Anthropic API credit balance too low",
+        "reason_auth":        "Anthropic API authentication failed",
+        "reason_rate_limit":  "Anthropic API rate limit exceeded",
+        "reason_network":     "network error",
+        "reason_unknown":     "Anthropic API error",
 
         "col_ticker":         "Ticker",
         "col_rsi":            "RSI",
@@ -141,6 +153,18 @@ _STRINGS: dict[str, dict[str, str]] = {
         "sec_news":           "重点新闻",
         "sec_picks":          "精选操作",
         "sec_flow":           "期权异动",
+        "sec_commentary":     "点评",
+
+        # ── degraded-run banner ───────────────────────────────────────────────
+        "degraded_title":     "部分分析不可用",
+        "degraded_line":      "{sections} 未能生成（{reason}）。",
+        "degraded_footer":    "评分卡数据为本地计算，不受影响。",
+        "list_sep":           "、",
+        "reason_credit":      "Anthropic API 信用额度不足",
+        "reason_auth":        "Anthropic API 认证失败",
+        "reason_rate_limit":  "Anthropic API 速率超限",
+        "reason_network":     "网络错误",
+        "reason_unknown":     "Anthropic API 错误",
 
         "col_ticker":         "股票",
         "col_rsi":            "RSI",

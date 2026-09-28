@@ -5,6 +5,7 @@ import anthropic
 
 from src.config import ANTHROPIC_API_KEY, CLAUDE_MODEL
 from src.i18n import prompt_language_directive
+from src import degradation
 
 _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -95,5 +96,6 @@ def analyze(ticker_articles: Dict[str, List[Dict[str, str]]]) -> Dict[str, Any]:
             results.update(batch_results)
         except Exception as e:
             print(f"[WARN] News analysis failed for batch {list(batch.keys())}: {e}")
+            degradation.record("news", e)
 
     return results

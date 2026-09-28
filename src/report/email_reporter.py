@@ -9,6 +9,7 @@ from src.config import (
     RSI_WATCH_THRESHOLD, RSI_WARN_THRESHOLD,
 )
 from src.i18n import t, fmt_date_long, fmt_date_short, fmt_date_compact
+from src.degradation import SECTION_KEYS
 
 _GREEN, _ORANGE, _RED = "#16a34a", "#d97706", "#dc2626"
 _NONE_COLOR = "#d1d5db"  # neutral gray outline — no signal / insufficient data
@@ -343,11 +344,51 @@ def _option_flow_block(flows: List[Dict]) -> str:
     </div>"""
 
 
+def _degraded_block(degradations: List[tuple]) -> str:
+    """
+    Warning strip naming the sections that failed to generate, and why.
+
+    An empty section is ambiguous on its own — a quiet news day and a dead API
+    look the same — so without this a total analysis outage produces a
+    normal-looking email. Rendered at the top, above the surviving content.
+    """
+    if not degradations:
+        return ""
+
+    # Group sections by cause, so one outage reads as one line rather than four.
+    by_reason: Dict[str, List[str]] = {}
+    for section, reason in degradations:
+        label = t(SECTION_KEYS[section])
+        by_reason.setdefault(reason, [])
+        if label not in by_reason[reason]:
+            by_reason[reason].append(label)
+
+    lines = "".join(
+        f'<div style="margin:3px 0 0;">'
+        f'{t("degraded_line", sections=t("list_sep").join(labels), reason=t(reason))}'
+        f"</div>"
+        for reason, labels in by_reason.items()
+    )
+
+    return f"""
+    <div style="background:#fffbeb;border:1px solid #fcd34d;border-left:4px solid #f59e0b;
+                border-radius:6px;padding:12px 14px;margin:16px 0 4px;">
+        <div style="font-size:13px;font-weight:bold;color:#92400e;">
+            &#9888;&#65039;&nbsp;{t("degraded_title")}
+        </div>
+        <div style="font-size:12px;color:#92400e;line-height:1.55;">
+            {lines}
+            <div style="margin:5px 0 0;color:#a16207;">{t("degraded_footer")}</div>
+        </div>
+    </div>"""
+
+
 def build_html(
     results: List[Dict[str, Any]],
     analyst_picks: Optional[Dict] = None,
     top_news: Optional[List[Dict]] = None,
     option_flows: Optional[List[Dict]] = None,
+    degradations: Optional[List[tuple]] = None,
 ) -> str:
     today = fmt_date_long(date.today())
 
@@ -358,6 +399,7 @@ def build_html(
     )
     stocks_label = t("daily_stocks", n=len(results))
 
+    degraded_block = _degraded_block(degradations or [])
     picks_block    = _analyst_picks_block(analyst_picks) if analyst_picks else ""
     earnings_block = _upcoming_earnings_block(results)
     news_block     = _top_news_block(top_news or [])
@@ -377,6 +419,7 @@ def build_html(
     </div>
 
     <div style="padding:4px 24px 24px;">
+        {degraded_block}
         {picks_block}
         {earnings_block}
         {news_block}
@@ -397,6 +440,7 @@ def send(
     analyst_picks: Optional[Dict] = None,
     top_news: Optional[List[Dict]] = None,
     option_flows: Optional[List[Dict]] = None,
+    degradations: Optional[List[tuple]] = None,
 ) -> None:
     today = fmt_date_short(date.today())
     signal_count = _signal_count(results)
@@ -405,7 +449,7 @@ def send(
         label = t("daily_signals", n=signal_count, s="s" if signal_count != 1 else "")
         subject += f" ({label})"
 
-    html = build_html(results, analyst_picks, top_news, option_flows)
+    html = build_html(results, analyst_picks, top_news, option_flows, degradations)
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
