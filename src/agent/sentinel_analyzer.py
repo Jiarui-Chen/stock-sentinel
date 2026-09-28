@@ -5,6 +5,7 @@ import anthropic
 
 from src.config import ANTHROPIC_API_KEY, CLAUDE_MODEL_SMART
 from src.i18n import prompt_language_directive
+from src import degradation
 
 _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -137,4 +138,5 @@ def analyze(enriched: List[Dict], fundamentals: Dict[str, Dict], option_flow: Op
 
     except Exception as e:
         print(f"[WARN] Sentinel analysis failed ({e})")
+        degradation.record("picks", e)
         return {"buy": [], "sell": []}

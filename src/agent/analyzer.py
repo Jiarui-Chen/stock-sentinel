@@ -3,6 +3,7 @@ import anthropic
 from typing import List, Dict, Any, Tuple
 from src.config import ANTHROPIC_API_KEY, CLAUDE_MODEL
 from src.i18n import prompt_language_directive
+from src import degradation
 
 _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -103,4 +104,5 @@ def enrich(results: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], str]:
 
     except Exception as e:
         print(f"[WARN] Claude enrichment failed ({e}) — sending report without commentary.")
+        degradation.record("commentary", e)
         return [{**r, "commentary": None} for r in results], ""

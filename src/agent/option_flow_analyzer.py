@@ -18,6 +18,7 @@ import anthropic
 
 from src.config import ANTHROPIC_API_KEY, CLAUDE_MODEL_SMART
 from src.i18n import prompt_language_directive, brief_length_hint
+from src import degradation
 
 _client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -214,4 +215,5 @@ def analyze(findings: Dict[str, List[Dict]]) -> List[Dict[str, Any]]:
 
     except Exception as e:
         print(f"[WARN] Option flow analysis failed: {e}")
+        degradation.record("flow", e)
         return []
