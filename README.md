@@ -188,9 +188,18 @@ python3 -m src.indicators.option_flow TSLA NVDA AAPL
 Run the regression tests:
 ```bash
 python3 tests/test_fd_leak.py
+python3 tests/test_degraded_report.py
 ```
 
 On startup the scheduler waits up to 120 seconds for network reachability before its first run, and raises its open-file limit to the hard ceiling as defense against fd exhaustion.
+
+### Degraded runs
+
+Every Claude-backed stage — commentary, news, Sentinel picks, option-flow highlights — catches its own errors and returns an empty result, so one failed API call never costs you the whole report. The scorecard is computed locally from price data and needs no API at all, which is why it survives any Anthropic outage.
+
+The trap is that an empty section is ambiguous: a quiet news day and a dead API render identically. When the Anthropic credit balance hit zero on 2026-09-16, eleven consecutive reports arrived looking normal — right subject line, right signal count — with every AI-written section silently missing, and it took a week to spot.
+
+`src/degradation.py` closes that gap. Stages record their failures, and the report opens with a banner naming which sections are missing and why (credit balance, authentication, rate limit, or network). A clean run renders no banner. If a report ever arrives as scorecard-only *without* a banner, that is a bug — check `logs/sentinel.log` for `[WARN]` lines.
 
 ## Deploy as a background service (macOS)
 

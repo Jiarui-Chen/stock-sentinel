@@ -17,6 +17,7 @@ from src.agent import (
     pre_earnings_analyzer, option_flow_analyzer,
 )
 from src.report import email_reporter, earnings_reporter, pre_earnings_reporter
+from src import degradation
 from src.config import REPORT_TIME, EARNINGS_EVENING_TIME, EARNINGS_MORNING_TIME
 
 
@@ -68,6 +69,10 @@ def run(force: bool = False) -> None:
     now = datetime.now()
 
     print(f"[{now:%Y-%m-%d %H:%M}] Starting daily run...")
+
+    # Must be cleared per run: the launchd process is long-lived, so without this
+    # yesterday's failures would be reported in today's email.
+    degradation.reset()
 
     tickers = load_watchlist()
     active_tickers = []
@@ -181,8 +186,12 @@ def run(force: bool = False) -> None:
     print(f"  Buy: {[p['ticker'] for p in analyst_picks.get('buy', [])]}  "
           f"Sell: {[p['ticker'] for p in analyst_picks.get('sell', [])]}")
 
+    degraded = degradation.failures()
+    if degraded:
+        print(f"  Degraded sections: {[s for s, _ in degraded]} — flagging in email.")
+
     print("  Sending report...")
-    email_reporter.send(enriched, analyst_picks, top_news, option_flow_summary)
+    email_reporter.send(enriched, analyst_picks, top_news, option_flow_summary, degraded)
     # Fresh timestamp, not `now` — the send time is what you compare against
     # REPORT_TIME when the email lands late, and reprinting the start time hides
     # how long the run actually took.
