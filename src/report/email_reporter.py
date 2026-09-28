@@ -10,6 +10,7 @@ from src.config import (
 )
 from src.i18n import t, fmt_date_long, fmt_date_short, fmt_date_compact
 from src.degradation import SECTION_KEYS
+from src.indicators import participation
 
 _GREEN, _ORANGE, _RED = "#16a34a", "#d97706", "#dc2626"
 _NONE_COLOR = "#d1d5db"  # neutral gray outline — no signal / insufficient data
@@ -344,6 +345,72 @@ def _option_flow_block(flows: List[Dict]) -> str:
     </div>"""
 
 
+_ZONE_COLORS = {"strong": _GREEN, "mixed": _ORANGE, "weak": _RED}
+
+_PART_ROWS = (
+    ("part_short", 20),
+    ("part_mid",   50),
+    ("part_long", 100),
+)
+
+
+def _participation_block(part: Optional[Dict[str, Any]]) -> str:
+    """
+    Market breadth: share of S&P 500 constituents above their 20/50/100-day SMA.
+
+    Leads the report because it frames everything below it — the same RSI reading
+    means different things in a market where 70% of names are above their 20-day
+    average and one where 30% are.
+
+    Each row carries a text zone label as well as a colored dot: color alone is
+    not a signal a colorblind reader or a plain-text client can resolve.
+    """
+    if not part:
+        return ""
+
+    windows = part.get("windows") or {}
+    rows = ""
+    for label_key, window in _PART_ROWS:
+        pct = windows.get(window)
+        if pct is None:
+            continue
+        z = participation.zone(pct)
+        color = _ZONE_COLORS[z]
+        rows += f"""
+        <tr>
+            <td style="padding:7px 0;font-size:12px;color:#374151;white-space:nowrap;">
+                <span style="font-weight:bold;">{t(label_key)}</span>
+                <span style="color:#9ca3af;">&nbsp;·&nbsp;{t("part_ma", n=window)}</span>
+            </td>
+            <td style="padding:7px 0;text-align:right;font-size:16px;font-weight:bold;
+                       color:{color};white-space:nowrap;">{pct:.1f}%</td>
+            <td style="padding:7px 0 7px 10px;text-align:right;font-size:10px;
+                       color:{color};letter-spacing:0.5px;white-space:nowrap;">
+                {_circle(color)}&nbsp;{t(f"zone_{z}")}
+            </td>
+        </tr>"""
+
+    if not rows:
+        return ""
+
+    stale = (f'&nbsp;·&nbsp;{t("part_stale")}' if part.get("universe_stale") else "")
+    footnote = t("part_footnote", n=part.get("universe", 0), asof=part.get("as_of", "")) + stale
+
+    return f"""
+    <div style="border:1px solid #e2e8f0;border-radius:6px;margin:16px 0;overflow:hidden;">
+        <div style="padding:10px 16px;background:#1e3a5f;">
+            <span style="font-weight:bold;font-size:13px;color:#f8fafc;letter-spacing:0.5px;">{t("sec_participation")}</span>
+        </div>
+        <div style="padding:10px 16px 12px;">
+            <div style="font-size:11px;color:#6b7280;padding-bottom:4px;">{t("part_caption")}</div>
+            <table style="width:100%;border-collapse:collapse;">{rows}</table>
+            <div style="font-size:10px;color:#9ca3af;padding-top:8px;border-top:1px solid #f1f5f9;">
+                {footnote}
+            </div>
+        </div>
+    </div>"""
+
+
 def _degraded_block(degradations: List[tuple]) -> str:
     """
     Warning strip naming the sections that failed to generate, and why.
@@ -389,6 +456,7 @@ def build_html(
     top_news: Optional[List[Dict]] = None,
     option_flows: Optional[List[Dict]] = None,
     degradations: Optional[List[tuple]] = None,
+    part: Optional[Dict[str, Any]] = None,
 ) -> str:
     today = fmt_date_long(date.today())
 
@@ -400,6 +468,7 @@ def build_html(
     stocks_label = t("daily_stocks", n=len(results))
 
     degraded_block = _degraded_block(degradations or [])
+    part_block     = _participation_block(part)
     picks_block    = _analyst_picks_block(analyst_picks) if analyst_picks else ""
     earnings_block = _upcoming_earnings_block(results)
     news_block     = _top_news_block(top_news or [])
@@ -420,6 +489,7 @@ def build_html(
 
     <div style="padding:4px 24px 24px;">
         {degraded_block}
+        {part_block}
         {picks_block}
         {earnings_block}
         {news_block}
@@ -441,6 +511,7 @@ def send(
     top_news: Optional[List[Dict]] = None,
     option_flows: Optional[List[Dict]] = None,
     degradations: Optional[List[tuple]] = None,
+    part: Optional[Dict[str, Any]] = None,
 ) -> None:
     today = fmt_date_short(date.today())
     signal_count = _signal_count(results)
@@ -449,7 +520,7 @@ def send(
         label = t("daily_signals", n=signal_count, s="s" if signal_count != 1 else "")
         subject += f" ({label})"
 
-    html = build_html(results, analyst_picks, top_news, option_flows, degradations)
+    html = build_html(results, analyst_picks, top_news, option_flows, degradations, part)
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject

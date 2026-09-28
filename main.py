@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from datetime import datetime, date, timedelta
 
 from src.data import fetcher, news_fetcher, fundamentals_fetcher, earnings_fetcher, pre_earnings_fetcher
-from src.indicators import rsi, rsi_divergence, macd, option_flow
+from src.indicators import rsi, rsi_divergence, macd, option_flow, participation
 from src.agent import (
     analyzer, news_analyzer, sentinel_analyzer, earnings_analyzer,
     pre_earnings_analyzer, option_flow_analyzer,
@@ -73,6 +73,18 @@ def run(force: bool = False) -> None:
     # Must be cleared per run: the launchd process is long-lived, so without this
     # yesterday's failures would be reported in today's email.
     degradation.reset()
+
+    # Breadth first: it leads the email, and it is independent of the watchlist, so
+    # a failure here must not cost us the rest of the report.
+    print("  Computing market participation...")
+    part = None
+    try:
+        part = participation.fetch_and_compute()
+        print(f"  Participation (as of {part['as_of']}): "
+              + "  ".join(f"{w}d {part['windows'][w]:.1f}%" for w in participation.WINDOWS))
+    except Exception as e:
+        print(f"[WARN] Market participation failed: {e}")
+        degradation.record("participation", e)
 
     tickers = load_watchlist()
     active_tickers = []
@@ -191,7 +203,7 @@ def run(force: bool = False) -> None:
         print(f"  Degraded sections: {[s for s, _ in degraded]} — flagging in email.")
 
     print("  Sending report...")
-    email_reporter.send(enriched, analyst_picks, top_news, option_flow_summary, degraded)
+    email_reporter.send(enriched, analyst_picks, top_news, option_flow_summary, degraded, part)
     # Fresh timestamp, not `now` — the send time is what you compare against
     # REPORT_TIME when the email lands late, and reprinting the start time hides
     # how long the run actually took.
